@@ -38,6 +38,7 @@ export function defaultConfig() {
     usage: { adapter: 'none' },
     routes: [],
     modelOverrides: {},
+    companion: { enabled: false },
   };
 }
 
@@ -191,6 +192,12 @@ export function validateConfig(raw) {
 
   if (!Array.isArray(cfg.routes)) {
     errors.push('routes must be an array');
+  }
+
+  if (!cfg.companion || typeof cfg.companion !== 'object' || Array.isArray(cfg.companion)) {
+    errors.push('companion must be an object');
+  } else if (typeof cfg.companion.enabled !== 'boolean') {
+    errors.push('companion.enabled must be a boolean');
   }
 
   return {

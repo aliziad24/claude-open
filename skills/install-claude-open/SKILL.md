@@ -1,6 +1,6 @@
 ---
 name: install-claude-open
-description: Install, update, configure, verify, diagnose, or uninstall Claude Open on Windows. Use when an AI agent must set up the separate Claude Open desktop app, connect a user-supplied Anthropic- or OpenAI-compatible gateway, discover models and reasoning efforts, verify Cowork or SSH, preserve isolation from normal Claude, or troubleshoot installation and launch problems without exposing credentials.
+description: Install, update, configure, verify, diagnose, or uninstall Claude Open on Windows. Use when an AI agent must set up the separate Claude Open desktop app, connect a user-supplied Anthropic- or OpenAI-compatible gateway, discover models and reasoning efforts, configure the paired mobile Remote Companion, verify Cowork or SSH, preserve isolation from normal Claude, or troubleshoot installation and launch problems without exposing credentials.
 ---
 
 # Install Claude Open
@@ -14,6 +14,7 @@ Install and operate Claude Open as a separate Windows app while preserving the u
 - Never collect or print conversation data, gateway credentials, SSH private keys, SSH host details, usernames, or the contents of either Claude profile.
 - Use only a release from the repository configured in `scripts/install-latest.ps1`, or a local release archive the user explicitly supplies.
 - Do not modify, move, update, uninstall, or read the normal Claude profile. Updating an existing official Claude package requires the user's explicit approval.
+- Never bind Remote Companion to the LAN or internet. Use its loopback listener only through a user-approved private HTTPS tunnel; never put the pairing code in a command, URL, log, or chat.
 - Treat a successful prerequisite check as necessary but insufficient: verify gateway, model, Cowork, and SSH behavior with harmless functional tests.
 
 ## Choose the workflow
@@ -23,7 +24,8 @@ Install and operate Claude Open as a separate Windows app while preserving the u
 3. For diagnosis, run `scripts/diagnose.ps1 -Json`. It reports only secret-free state.
 4. For configuration and feature verification, follow `references/install-and-use.md`.
 5. For Cowork or SSH, additionally follow `references/cowork-and-ssh.md`.
-6. For failures or uninstall, follow `references/troubleshooting.md`.
+6. For mobile setup, additionally follow `references/remote-companion.md`.
+7. For failures or uninstall, follow `references/troubleshooting.md`.
 
 ## Install or update
 
@@ -51,6 +53,7 @@ Do not call the setup complete until all requested items pass:
 - If requested, Cowork creates a harmless file in a temporary folder.
 - If requested, SSH connects to a user-approved test host without collecting its details.
 - The usage widget updates after a successful request.
+- If requested, Remote Companion pairs over a private HTTPS URL, streams a harmless chat, and catches up after a simulated disconnect.
 
 Report which checks passed, failed, or require a reboot/user interaction. Never claim a feature works solely because installation completed.
 
@@ -60,4 +63,5 @@ Report which checks passed, failed, or require a reboot/user interaction. Never 
 - `scripts/diagnose.ps1`: emit a secret-free installation and prerequisite report.
 - `references/install-and-use.md`: complete install, configuration, model, effort, usage, update, and isolation workflow.
 - `references/cowork-and-ssh.md`: safe functional checks for Cowork and SSH.
+- `references/remote-companion.md`: safe mobile PWA pairing and reconnect verification.
 - `references/troubleshooting.md`: failure isolation and uninstall guidance.

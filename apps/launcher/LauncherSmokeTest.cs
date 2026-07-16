@@ -27,6 +27,8 @@ internal static class LauncherSmokeTest
             Assert(Field<ComboBox>(type, form, "effortComboBox") != null, "effort selector");
             Assert(Field<Button>(type, form, "applyEffortButton") != null, "verified effort apply button");
             Assert(Field<ProgressBar>(type, form, "contextProgressBar") != null, "context meter");
+            Assert(Field<CheckBox>(type, form, "companionCheckBox") != null, "opt-in mobile companion checkbox");
+            Assert(Field<Button>(type, form, "companionSetupButton") != null, "mobile setup button");
 
             Dictionary<string, object> reasoning = new Dictionary<string, object>();
             reasoning["controlType"] = "categorical";

@@ -128,6 +128,38 @@ test('verified Control Center selection persists and changes future upstream byt
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('verified request-scoped effort applies once without changing the desktop preference', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'co-request-effort-'));
+  try {
+    const store = new ConformanceStore({ filePath: join(dir, 'c.json') });
+    store.record({ fingerprint: FP, realId: 'gpt-5.5', route: 'openai-responses', field: 'reasoning.effort', value: 'high', result: 'behavior-observed', evidence: 'explicit echo' });
+    const s = await stackWith([{ id: 'gpt-5.5' }], store, dir);
+    try {
+      const scoped = await fetch(`${s.base}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-claude-open-effort': 'high' },
+        body: JSON.stringify({ model: 'gpt-5.5', max_tokens: 8, messages: [{ role: 'user', content: 'x' }] }),
+      });
+      assert.equal(scoped.status, 200);
+      assert.equal(s.gw.lastRequest().body.reasoning.effort, 'high');
+
+      const ordinary = await fetch(`${s.base}/v1/messages`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-5.5', max_tokens: 8, messages: [{ role: 'user', content: 'x' }] }),
+      });
+      assert.equal(ordinary.status, 200);
+      assert.equal(s.gw.lastRequest().body.reasoning, undefined);
+
+      const unverified = await fetch(`${s.base}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-claude-open-effort': 'max' },
+        body: JSON.stringify({ model: 'gpt-5.5', max_tokens: 8, messages: [{ role: 'user', content: 'x' }] }),
+      });
+      assert.equal(unverified.status, 409);
+    } finally { await s.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('verified effort preference survives an adapter restart', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'co-pref-restart-'));
   try {

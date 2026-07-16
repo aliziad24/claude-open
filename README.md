@@ -28,6 +28,7 @@ Claude Open runs the official Anthropic-signed Claude Desktop client with an iso
 | Reasoning effort | Model-specific controls appear only after the gateway verifies support |
 | Cowork and SSH | Current Claude surfaces plus safe setup and functional verification guidance |
 | Usage widget | Secret-free local session token/context telemetry |
+| Mobile companion | Opt-in paired PWA with resumable streaming through a private HTTPS tunnel |
 | No developer setup | Bundled Node.js runtime; no Node, npm, Git, or SDK required |
 | Claude optional | If official Claude is absent, setup obtains it from its official Windows source |
 
@@ -47,6 +48,12 @@ Claude Open runs the official Anthropic-signed Claude Desktop client with an iso
 Claude Desktop does not need to be installed first. If it already exists, setup leaves that installation and its profile unchanged by default. See [installation](docs/INSTALL.md) for a custom drive, Cowork prerequisites, update, and uninstall options.
 
 Agents can follow the repository's [Install Claude Open skill](skills/install-claude-open/SKILL.md) to inspect, install, configure, verify, diagnose, or remove the app without asking for secrets.
+
+### Optional mobile companion
+
+Enable **Mobile companion** in Control Center, save, launch, and select **Mobile setup**. The companion provides a phone-friendly installable web app with live models, verified effort choices, local usage, cancellable streaming, and automatic catch-up after network interruptions.
+
+It binds only to loopback and is intentionally unreachable from the LAN. Use a trusted private HTTPS tunnel such as Tailscale Serve; never router-forward or publicly expose the companion port. See [Remote Companion](docs/REMOTE-COMPANION.md).
 
 ## Separate from normal Claude
 
@@ -91,6 +98,7 @@ Review [privacy](docs/PRIVACY.md), [security invariants](SECURITY.md), and [publ
 | [Gateway guide](docs/GATEWAYS.md) | Required endpoints and authentication styles |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Diagnose launch, gateway, model, Cowork, and SSH failures |
 | [Isolation](docs/ISOLATION.md) | How normal Claude and Claude Open coexist |
+| [Remote Companion](docs/REMOTE-COMPANION.md) | Secure mobile pairing, PWA installation, reconnect behavior, and limits |
 
 ## Build and verify
 

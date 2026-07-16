@@ -14,6 +14,7 @@ using System.Security.Cryptography;
 using System.Reflection;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text.RegularExpressions;
 
 [assembly: AssemblyTitle("Claude Open")]
 [assembly: AssemblyDescription("Claude Open launcher and gateway control center")]
@@ -92,6 +93,8 @@ namespace ClaudeOpenLauncher
         private Button refreshModelsButton;
         private Button probeEffortButton;
         private Button applyEffortButton;
+        private CheckBox companionCheckBox;
+        private Button companionSetupButton;
         private Label modelCountLabel;
         private Label contextValueLabel;
         private Label usageValueLabel;
@@ -137,6 +140,9 @@ namespace ClaudeOpenLauncher
         private int restartAttempts = 0;
         private DateTime lastAdapterStart = DateTime.MinValue;
         private bool stopping = false;
+        private int companionPort = 0;
+        private string companionPairingCode = "";
+        private string companionPairingExpiresAt = "";
 
         private sealed class ModelView
         {
@@ -439,11 +445,23 @@ namespace ClaudeOpenLauncher
             removeSecretButton.Location = new Point(250, 200);
             removeSecretButton.Size = new Size(215, 32);
 
+            companionCheckBox = new CheckBox();
+            companionCheckBox.Text = "Enable mobile companion (opt-in)";
+            companionCheckBox.Location = new Point(15, 239);
+            companionCheckBox.Size = new Size(280, 24);
+            companionCheckBox.ForeColor = ClaudeMuted;
+            companionCheckBox.BackColor = ClaudePaper;
+            setupPanel.Controls.Add(companionCheckBox);
+
             configStatusLabel.Size = new Size(440, 20);
             secretStatusLabel.Size = new Size(440, 20);
             adapterStatusLabel.Size = new Size(440, 35);
             healthStatusLabel.Size = new Size(440, 35);
             testConnectionButton.Size = new Size(210, 32);
+
+            companionSetupButton = NewButton("Mobile setup", 250, 200, 215, 32, false);
+            companionSetupButton.Click += CompanionSetupButton_Click;
+            statusPanel.Controls.Add(companionSetupButton);
 
             modelPanel = new Panel();
             modelPanel.Location = new Point(24, 364);
@@ -1047,6 +1065,13 @@ namespace ClaudeOpenLauncher
                             }
                         }
                     }
+                    if (currentConfig.ContainsKey("companion"))
+                    {
+                        var companion = currentConfig["companion"] as Dictionary<string, object>;
+                        object enabled;
+                        if (companion != null && companion.TryGetValue("enabled", out enabled))
+                            companionCheckBox.Checked = Convert.ToBoolean(enabled);
+                    }
                     AppendLog("Config loaded successfully.");
                 }
                 catch (Exception ex)
@@ -1081,12 +1106,29 @@ namespace ClaudeOpenLauncher
 
                 // Validate URL format
                 try {
-                    var uri = new Uri(url);
+                    var uri = new Uri(url, UriKind.Absolute);
                     if (uri.Scheme != "http" && uri.Scheme != "https")
                         throw new Exception("Scheme must be http or https");
+                    if (!string.IsNullOrEmpty(uri.UserInfo))
+                        throw new Exception("The URL must not contain a username or password");
+                    if (uri.Scheme == "http" && !uri.IsLoopback)
+                        throw new Exception("Remote gateways must use HTTPS; HTTP is allowed only on loopback");
                 } catch (Exception ex) {
                     MessageBox.Show("Invalid Base URL: " + ex.Message, "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
+                }
+
+                if (kind == "custom-header")
+                {
+                    var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+                        "content-length", "host", "connection", "transfer-encoding",
+                        "authorization", "proxy-authorization", "x-api-key", "cookie", "set-cookie"
+                    };
+                    if (string.IsNullOrEmpty(headerName) || !Regex.IsMatch(headerName, "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$") || reserved.Contains(headerName))
+                    {
+                        MessageBox.Show("Enter a valid non-reserved custom authentication header name.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
                 }
 
                 // Compute Fingerprint
@@ -1114,10 +1156,16 @@ namespace ClaudeOpenLauncher
                 }
 
                 // Prepare configuration object
-                var config = new Dictionary<string, object>();
+                // Preserve advanced user configuration (route overrides, model
+                // facts, custom safe headers, and usage adapters) when the basic
+                // Control Center fields are saved. Earlier builds recreated this
+                // dictionary and silently erased those advanced settings.
+                var config = currentConfig != null
+                    ? new Dictionary<string, object>(currentConfig)
+                    : new Dictionary<string, object>();
                 config["baseUrl"] = url;
-                config["profile"] = "mixed-auto";
-                config["modelsEndpoint"] = "/v1/models";
+                if (!config.ContainsKey("profile")) config["profile"] = "mixed-auto";
+                if (!config.ContainsKey("modelsEndpoint")) config["modelsEndpoint"] = "/v1/models";
                 
                 var auth = new Dictionary<string, object>();
                 auth["kind"] = kind;
@@ -1125,9 +1173,10 @@ namespace ClaudeOpenLauncher
                 auth["headerName"] = kind == "custom-header" ? headerName : null;
                 config["auth"] = auth;
                 
-                config["usage"] = new Dictionary<string, object> { { "adapter", "none" } };
-                config["routes"] = new List<object>();
-                config["modelOverrides"] = new Dictionary<string, object>();
+                if (!config.ContainsKey("usage")) config["usage"] = new Dictionary<string, object> { { "adapter", "none" } };
+                if (!config.ContainsKey("routes")) config["routes"] = new List<object>();
+                if (!config.ContainsKey("modelOverrides")) config["modelOverrides"] = new Dictionary<string, object>();
+                config["companion"] = new Dictionary<string, object> { { "enabled", companionCheckBox.Checked } };
 
                 var jss = new JavaScriptSerializer();
                 string json = jss.Serialize(config);
@@ -1295,6 +1344,8 @@ namespace ClaudeOpenLauncher
             psi.EnvironmentVariables["CLAUDE_OPEN_RUNTIME_DIR"] = runtimeDir;
             psi.EnvironmentVariables["CLAUDE_OPEN_CONFIG_DIR"] = appDataDir;
             psi.EnvironmentVariables["CLAUDE_OPEN_CLIENT_TOKEN"] = clientToken;
+            if (companionCheckBox != null && companionCheckBox.Checked)
+                psi.EnvironmentVariables["CLAUDE_OPEN_COMPANION"] = "1";
             string widgetDir = Path.Combine(installRoot, "client", "resources", "ion-dist", "assets", "v1");
             if (Directory.Exists(widgetDir))
                 psi.EnvironmentVariables["CLAUDE_OPEN_WIDGET_DIR"] = widgetDir;
@@ -1339,6 +1390,61 @@ namespace ClaudeOpenLauncher
             if (rt.TryGetValue("port", out value)) activePort = Convert.ToInt32(value);
             if (rt.TryGetValue("clientToken", out value) && value != null) clientToken = value.ToString();
             if (rt.TryGetValue("controlToken", out value) && value != null) controlToken = value.ToString();
+            if (rt.TryGetValue("companion", out value) && value != null)
+            {
+                var companion = value as Dictionary<string, object>;
+                object companionValue;
+                if (companion != null && companion.TryGetValue("enabled", out companionValue) && Convert.ToBoolean(companionValue))
+                {
+                    if (companion.TryGetValue("port", out companionValue)) companionPort = Convert.ToInt32(companionValue);
+                    if (companion.TryGetValue("pairingCode", out companionValue) && companionValue != null) companionPairingCode = companionValue.ToString();
+                    if (companion.TryGetValue("pairingExpiresAt", out companionValue) && companionValue != null) companionPairingExpiresAt = companionValue.ToString();
+                }
+            }
+        }
+
+        private void CompanionSetupButton_Click(object sender, EventArgs e)
+        {
+            if (companionCheckBox == null || !companionCheckBox.Checked)
+            {
+                MessageBox.Show("Enable the mobile companion checkbox, save configuration, and launch Claude Open first.", "Mobile Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (adapterProcess == null || adapterProcess.HasExited)
+            {
+                MessageBox.Show("Launch Claude Open first. The companion exists only while Claude Open is running.", "Mobile Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            ReadRuntimeState();
+            if (companionPort <= 0 || string.IsNullOrEmpty(companionPairingCode))
+            {
+                MessageBox.Show("The companion did not start. Check adapter.log for a redacted startup error, then restart Claude Open.", "Mobile Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string localUrl = "http://127.0.0.1:" + companionPort + "/";
+            string tailscaleCommand = "tailscale serve --yes http://127.0.0.1:" + companionPort;
+            string message =
+                "PAIRING CODE\r\n" + companionPairingCode + "\r\n\r\n" +
+                "Expires: " + companionPairingExpiresAt + "\r\n\r\n" +
+                "Yes: open a local preview on this PC.\r\n" +
+                "No: copy the recommended Tailscale Serve command. Run it in an elevated PowerShell, then open the private HTTPS URL it displays on a phone signed into the same tailnet.\r\n\r\n" +
+                "Never expose the companion port directly to the LAN or internet.";
+            DialogResult result = MessageBox.Show(message, "Mobile Companion", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Information);
+            if (result == DialogResult.Yes)
+            {
+                try { Process.Start(new ProcessStartInfo(localUrl) { UseShellExecute = true }); }
+                catch (Exception ex) { MessageBox.Show("Could not open the local preview: " + ex.Message, "Mobile Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            }
+            else if (result == DialogResult.No)
+            {
+                try
+                {
+                    Clipboard.SetText(tailscaleCommand);
+                    MessageBox.Show("The Tailscale Serve command was copied. It contains only the loopback port, not the pairing code or gateway key.", "Mobile Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex) { MessageBox.Show("Could not copy the command: " + ex.Message, "Mobile Companion", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            }
         }
 
         private string CreateLocalToken()
@@ -2048,9 +2154,21 @@ namespace ClaudeOpenLauncher
                 adapterProcess = null;
             }
 
+            // Retire all per-run local bearer/control/pairing material as soon
+            // as the owning adapter stops. The next launch creates fresh values.
+            try
+            {
+                string runtimeFile = Path.Combine(runtimeDir, "runtime.json");
+                if (File.Exists(runtimeFile)) File.Delete(runtimeFile);
+            }
+            catch (Exception ex) { AppendLog("Warning: could not remove retired runtime state: " + ex.Message); }
+
             activePort = 0;
             clientToken = "";
             controlToken = "";
+            companionPort = 0;
+            companionPairingCode = "";
+            companionPairingExpiresAt = "";
             liveModels.Clear();
             if (modelComboBox != null) modelComboBox.Items.Clear();
             if (modelCountLabel != null) modelCountLabel.Text = "Launch to discover models";
