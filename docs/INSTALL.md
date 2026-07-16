@@ -24,8 +24,8 @@ The sparse package uses a release-specific self-signed public certificate in `Cu
 ## Options
 
 ```powershell
-# Custom location
-.\Install-ClaudeOpen.ps1 -InstallDir 'C:\Apps\Claude Open'
+# Custom location on any fixed local drive; spaces are supported
+.\Install-ClaudeOpen.ps1 -InstallDir 'X:\Apps\Claude Open'
 
 # No extra Start-menu shortcut
 .\Install-ClaudeOpen.ps1 -NoShortcut

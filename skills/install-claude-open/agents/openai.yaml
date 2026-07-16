@@ -1,0 +1,4 @@
+interface:
+  display_name: "Install Claude Open"
+  short_description: "Install, configure, verify, and troubleshoot Claude Open"
+  default_prompt: "Use $install-claude-open to install and configure Claude Open safely on this Windows PC."

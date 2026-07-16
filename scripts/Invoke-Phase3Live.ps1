@@ -56,14 +56,14 @@
   Default 75.
 
 .PARAMETER ClientExe
-  Genuine WindowsApps claude.exe. Default:
-  C:\Program Files\WindowsApps\Claude_1.20186.1.0_x64__pzs8sxrjxfjjc\app\claude.exe
+  Optional path to the genuine WindowsApps claude.exe. By default the current
+  official Claude MSIX package location is discovered dynamically.
 #>
 [CmdletBinding()]
 param(
   [string]$EvidenceRoot,
   [int]$WaitClientSeconds = 75,
-  [string]$ClientExe = 'C:\Program Files\WindowsApps\Claude_1.20186.1.0_x64__pzs8sxrjxfjjc\app\claude.exe'
+  [string]$ClientExe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +71,7 @@ Set-StrictMode -Version Latest
 
 $repositoryRoot = Split-Path $PSScriptRoot -Parent
 if (-not $EvidenceRoot) { $EvidenceRoot = Join-Path $repositoryRoot 'test-results\corrective' }
+if (-not $ClientExe) { $ClientExe = & (Join-Path $PSScriptRoot 'Resolve-OfficialClaudeExe.ps1') }
 
 $started = [DateTime]::UtcNow
 $runId = $started.ToString('yyyyMMddTHHmmss.fffZ') + '-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
