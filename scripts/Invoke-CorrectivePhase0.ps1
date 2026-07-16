@@ -35,7 +35,14 @@ function Invoke-TextCommand {
 function Get-Sha256 {
   param([string]$Path)
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
-  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return (($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join '')
+  } finally {
+    $sha.Dispose()
+    $stream.Dispose()
+  }
 }
 
 function Protect-Text {
