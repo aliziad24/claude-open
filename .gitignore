@@ -1,0 +1,134 @@
+# =========================================================================
+# Claude Open — release privacy hardening (plan section 5.3)
+# Goal: never commit user data, secrets, vendor binaries, or diagnostics.
+# =========================================================================
+
+# --- Profiles / user data / caches (isolated Claude Open profile + normal) ---
+Profile/
+profile/
+*Profile/
+ClaudeOpen/
+ClaudeOpenData/
+/data/
+!packages/model-registry/data/
+!packages/model-registry/data/**
+cache/
+Cache/
+caches/
+Caches/
+Code Cache/
+GPUCache/
+IndexedDB/
+Local Storage/
+Session Storage/
+blob_storage/
+Cookies*
+Network/
+
+# --- Logs and diagnostics (never commit) ---
+*.log
+logs/
+proxy.log
+_co-diag*.json
+diagnostics/
+*-diag.json
+crashpad/
+Crashpad/
+
+# --- Databases / recovered transcripts / dumps ---
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.jsonl
+*RECOVERED*.md
+*conversation*.md
+*transcript*
+SESSION-*.md
+*.dump
+*.dmp
+
+# --- Local config and credential files (secrets live in DPAPI/Cred Manager) ---
+config.json
+*-config.json
+usage-widget-config.json
+credentials*
+*.pem
+*.key
+*.pfx
+*.p12
+.secrets/
+secrets.json
+
+# --- App packages and vendor binaries (no Anthropic redistribution) ---
+*.exe
+*.dll
+*.node
+*.asar
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+Claude.exe
+app.asar
+
+# --- Identity MSIX build artifacts (keep AppxManifest.xml + fusion + scripts
+#     tracked; never commit packed packages, dev certs, generated logos, or the
+#     generated embeddable app manifest). *.msix/*.pfx/*.png are already ignored
+#     above/below; these add the remaining generated outputs. ---
+msix/*.msix
+msix/*.pfx
+msix/*.cer
+msix/ClaudeOpen.exe.manifest
+msix/assets/*.png
+msix/assets/*.ico
+
+# --- Build output ---
+node_modules/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# --- Local test evidence (summaries belong in CI/PR output, not the repo) ---
+test-results/
+
+# --- Backups from update workflow ---
+*.old-*
+*.backup-*
+*.disabled-*
+*.rolled-back-*
+_pre-*backup*/
+
+# --- Private rollback backups written by the identity harness (never commit) ---
+.rollback/
+**/.rollback/
+
+# --- Environment ---
+.env
+.env.*
+!.env.example
+
+# --- Screenshots (only allow explicitly-placed sanitized evidence) ---
+*.png
+*.jpg
+*.jpeg
+!docs/**/*.png
+
+# --- Windows / OS detritus ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- IDE ---
+.vscode/
+.idea/
+*.iml
+
+# --- Python bytecode (legacy) ---
+__pycache__/
+*.pyc
+*.pyo

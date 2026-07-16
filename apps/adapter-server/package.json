@@ -1,0 +1,19 @@
+{
+  "name": "@claude-open/adapter-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "bin": {
+    "claude-open-adapter": "src/main.js"
+  },
+  "dependencies": {
+    "@claude-open/config": "*",
+    "@claude-open/gateway-adapter": "*",
+    "@claude-open/model-catalog": "*",
+    "@claude-open/model-registry": "*"
+  },
+  "scripts": {
+    "test": "node --test test"
+  }
+}

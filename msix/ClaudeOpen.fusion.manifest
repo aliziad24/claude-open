@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fusion (side-by-side / SxS) manifest fragment for ClaudeOpen.exe.
+
+  This <msix> element is embedded into ClaudeOpen.exe as a Win32 application
+  manifest at build time (see scripts/Build-Identity-Msix.ps1). It is how a
+  win32App-behavior packaged application is bound back to its MSIX package
+  identity at process-start.
+
+  The three attributes below MUST match msix/AppxManifest.xml EXACTLY:
+
+    packageName   = AppxManifest <Identity Name>            -> "ClaudeOpen"
+    publisher     = AppxManifest <Identity Publisher>       -> "CN=ClaudeOpen Dev"
+    applicationId = AppxManifest <Application Id>            -> "ClaudeOpen"
+
+  Any mismatch here versus the AppxManifest yields the classic identity failure
+  0x80073D54 ("The process has no package identity") at launch.
+
+  NOTE: a real embedded application manifest wraps this <msix> element inside
+  <assembly ...><assemblyIdentity .../> ... </assembly>. This file is kept as a
+  standalone, EASY-TO-VALIDATE fragment (the identity-consistency unit test and
+  the build script both read these three attributes from here). The build script
+  wraps it into a full assembly manifest before embedding.
+-->
+<msix xmlns="urn:schemas-microsoft-com:msix.v1"
+      publisher="CN=ClaudeOpen Dev"
+      packageName="ClaudeOpen"
+      applicationId="ClaudeOpen" />

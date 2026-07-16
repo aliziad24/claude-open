@@ -1,0 +1,533 @@
+{
+  "$schema": "./registry.schema.json",
+  "version": "2026-07-12",
+  "note": "Data-driven model capability + reasoning-control registry (NEXT-INSTRUCTIONS sections 5-6). Model facts live in these versioned records, NOT in source conditionals. Each record carries provenance (source URL, publisher, retrieval date). Match rules are EXPLICIT: 'exact' matches a full id; 'prefix' matches an id that starts with the pattern; 'regex' is an explicitly documented pattern. A record only asserts what its source supports; everything else stays 'unknown'. Effort/thinking values here are DEFAULTS pending a live conformance probe against the user's gateway, which overrides them.",
+  "reasoningControlTypes": [
+    "none",
+    "categorical",
+    "boolean",
+    "numeric_budget",
+    "model_variant",
+    "automatic_only",
+    "unknown"
+  ],
+  "modelTypes": [
+    "text-chat",
+    "reasoning-text",
+    "vision-input",
+    "image-generation",
+    "audio-voice",
+    "embedding",
+    "local-gguf",
+    "unknown"
+  ],
+  "records": [
+    {
+      "id": "anthropic-claude-haiku-45",
+      "match": { "kind": "exact", "pattern": "claude-haiku-4-5" },
+      "provider": "Anthropic",
+      "family": "claude",
+      "modelType": "reasoning-text",
+      "routes": ["anthropic"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": { "controlType": "numeric_budget", "field": "thinking.budget_tokens", "note": "Haiku 4.5 supports manual extended-thinking budgets, not categorical effort." },
+      "source": { "url": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking", "publisher": "Anthropic", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "anthropic-claude-opus-45",
+      "match": { "kind": "exact", "pattern": "claude-opus-4-5" },
+      "provider": "Anthropic", "family": "claude", "modelType": "reasoning-text", "routes": ["anthropic"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": {
+        "controlType": "categorical",
+        "field": "output_config.effort",
+        "values": ["low", "medium", "high"],
+        "default": "high"
+      },
+      "source": { "url": "https://platform.claude.com/docs/en/build-with-claude/effort", "publisher": "Anthropic", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "anthropic-claude-46",
+      "match": { "kind": "regex", "pattern": "^claude-(opus|sonnet)-4-6$" },
+      "provider": "Anthropic", "family": "claude", "modelType": "reasoning-text", "routes": ["anthropic"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "output_config.effort", "values": ["low", "medium", "high", "max"], "default": "high" },
+      "source": { "url": "https://platform.claude.com/docs/en/build-with-claude/effort", "publisher": "Anthropic", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "anthropic-claude-latest-effort",
+      "match": { "kind": "regex", "pattern": "^claude-(opus-(4-7|4-8)|sonnet-5)$" },
+      "provider": "Anthropic", "family": "claude", "modelType": "reasoning-text", "routes": ["anthropic"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "output_config.effort", "values": ["low", "medium", "high", "xhigh", "max"], "default": "high" },
+      "source": { "url": "https://platform.claude.com/docs/en/build-with-claude/effort", "publisher": "Anthropic", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "anthropic-claude-future-unknown",
+      "match": { "kind": "prefix", "pattern": "claude-" },
+      "provider": "Anthropic", "family": "claude", "modelType": "reasoning-text", "routes": ["anthropic"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "unknown", "streaming": "unknown",
+      "reasoning": { "controlType": "unknown" },
+      "source": { "url": "https://platform.claude.com/docs/en/about-claude/models/overview", "publisher": "Anthropic", "retrieved": "2026-07-12" },
+      "confidence": "low"
+    },
+    {
+      "id": "openai-gpt54-reasoning",
+      "match": { "kind": "exact", "pattern": "gpt-5.4" },
+      "provider": "OpenAI",
+      "family": "gpt-5",
+      "modelType": "reasoning-text",
+      "routes": ["openai-responses"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": {
+        "controlType": "categorical",
+        "field": "reasoning.effort",
+        "values": ["none", "low", "medium", "high", "xhigh"],
+        "default": "none"
+      },
+      "source": {
+        "url": "https://platform.openai.com/docs/guides/reasoning",
+        "publisher": "OpenAI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "documented"
+    },
+    {
+      "id": "openai-gpt55-reasoning",
+      "match": { "kind": "exact", "pattern": "gpt-5.5" },
+      "provider": "OpenAI", "family": "gpt-5", "modelType": "reasoning-text", "routes": ["openai-responses"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "reasoning.effort", "values": ["none", "low", "medium", "high", "xhigh"], "default": "medium" },
+      "source": { "url": "https://developers.openai.com/api/docs/models", "publisher": "OpenAI", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "openai-gpt56-reasoning",
+      "match": { "kind": "regex", "pattern": "^gpt-5\\.6-(luna|sol|terra)$" },
+      "provider": "OpenAI", "family": "gpt-5", "modelType": "reasoning-text", "routes": ["openai-responses"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "reasoning.effort", "values": ["none", "low", "medium", "high", "xhigh", "max"] },
+      "source": { "url": "https://developers.openai.com/api/docs/models", "publisher": "OpenAI", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "openai-gpt5-future-unknown",
+      "match": { "kind": "prefix", "pattern": "gpt-5" },
+      "provider": "OpenAI", "family": "gpt-5", "modelType": "reasoning-text", "routes": ["openai-responses"],
+      "modalities": { "input": ["text"], "output": ["text"] }, "tools": "unknown", "streaming": "unknown",
+      "reasoning": { "controlType": "unknown" },
+      "source": { "url": "https://developers.openai.com/api/docs/models", "publisher": "OpenAI", "retrieved": "2026-07-12" },
+      "confidence": "low"
+    },
+    {
+      "id": "openai-gpt4-chat",
+      "match": { "kind": "prefix", "pattern": "gpt-4" },
+      "provider": "OpenAI",
+      "family": "gpt-4",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": { "controlType": "none" },
+      "source": {
+        "url": "https://platform.openai.com/docs/models",
+        "publisher": "OpenAI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "documented"
+    },
+    {
+      "id": "openai-gpt-image",
+      "match": { "kind": "prefix", "pattern": "gpt-image" },
+      "provider": "OpenAI",
+      "family": "gpt-image",
+      "modelType": "image-generation",
+      "routes": ["unsupported"],
+      "modalities": { "input": ["text"], "output": ["image"] },
+      "tools": "unsupported",
+      "streaming": "unsupported",
+      "reasoning": { "controlType": "none" },
+      "unavailableReason": "Image-generation model; Claude Desktop's chat surface cannot drive it. Not shown in the chat picker.",
+      "source": {
+        "url": "https://platform.openai.com/docs/guides/images",
+        "publisher": "OpenAI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "documented"
+    },
+    {
+      "id": "google-gemini-31-pro-preview",
+      "match": { "kind": "exact", "pattern": "gemini-3.1-pro-preview" },
+      "provider": "Google",
+      "family": "gemini-3",
+      "modelType": "reasoning-text",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": {
+        "controlType": "categorical",
+        "field": "generation_config.thinking_level",
+        "note": "Documented provider ladder. This gateway's OpenAI-compatible wire path remains unverified and therefore is not advertised until conformance succeeds.",
+        "values": ["low", "medium", "high"],
+        "default": "high"
+      },
+      "source": {
+        "url": "https://ai.google.dev/gemini-api/docs/thinking",
+        "publisher": "Google",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "documented"
+    },
+    {
+      "id": "google-gemini-35-flash",
+      "match": { "kind": "exact", "pattern": "gemini-3.5-flash" },
+      "provider": "Google", "family": "gemini-3", "modelType": "reasoning-text", "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "generation_config.thinking_level", "values": ["minimal", "low", "medium", "high"], "default": "medium" },
+      "source": { "url": "https://ai.google.dev/gemini-api/docs/thinking", "publisher": "Google", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "google-gemini-3-flash-preview",
+      "match": { "kind": "exact", "pattern": "gemini-3-flash-preview" },
+      "provider": "Google", "family": "gemini-3", "modelType": "reasoning-text", "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "generation_config.thinking_level", "values": ["minimal", "low", "medium", "high"], "default": "high" },
+      "source": { "url": "https://ai.google.dev/gemini-api/docs/thinking", "publisher": "Google", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "google-gemini-3-pro-preview",
+      "match": { "kind": "exact", "pattern": "gemini-3-pro-preview" },
+      "provider": "Google", "family": "gemini-3", "modelType": "reasoning-text", "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "supported", "streaming": "supported",
+      "reasoning": { "controlType": "categorical", "field": "generation_config.thinking_level", "values": ["low", "high"], "default": "high" },
+      "source": { "url": "https://ai.google.dev/gemini-api/docs/thinking", "publisher": "Google", "retrieved": "2026-07-12" },
+      "confidence": "documented"
+    },
+    {
+      "id": "google-gemini-variant-suffix",
+      "match": { "kind": "regex", "pattern": "^gemini-.*-(low|high|min|max)$" },
+      "provider": "Google",
+      "family": "gemini",
+      "modelType": "reasoning-text",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": {
+        "controlType": "model_variant",
+        "note": "Effort is encoded in the model id itself (e.g. -low). Do NOT add a separate effort selector; the variant IS the choice."
+      },
+      "source": {
+        "url": "https://ai.google.dev/gemini-api/docs/thinking",
+        "publisher": "Google",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "inferred-from-id"
+    },
+    {
+      "id": "google-gemini3-gateway-unknown",
+      "match": { "kind": "prefix", "pattern": "gemini-3" },
+      "provider": "Google", "family": "gemini-3", "modelType": "reasoning-text", "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] }, "tools": "unknown", "streaming": "unknown",
+      "reasoning": { "controlType": "unknown", "note": "Exact gateway alias lacks matching official effort evidence." },
+      "source": { "url": "https://ai.google.dev/gemini-api/docs/thinking", "publisher": "Google", "retrieved": "2026-07-12" },
+      "confidence": "low"
+    },
+    {
+      "id": "google-gemini-25-gateway-alias",
+      "match": { "kind": "prefix", "pattern": "gemini-2.5" },
+      "provider": "Google",
+      "family": "gemini-2.5",
+      "modelType": "reasoning-text",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": { "controlType": "unknown", "note": "The native Gemini API supports thinking budgets, but this gateway alias is routed through OpenAI Chat and its compatible field is not established." },
+      "source": {
+        "url": "https://ai.google.dev/gemini-api/docs/thinking",
+        "publisher": "Google",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "google-nanobanana-image",
+      "match": { "kind": "prefix", "pattern": "nanobanana" },
+      "provider": "Google",
+      "family": "gemini-image",
+      "modelType": "image-generation",
+      "routes": ["unsupported"],
+      "modalities": { "input": ["text", "image"], "output": ["image"] },
+      "tools": "unsupported",
+      "streaming": "unsupported",
+      "reasoning": { "controlType": "none" },
+      "unavailableReason": "Image-generation model (Gemini image, aka 'nanobanana'); not a chat model.",
+      "source": {
+        "url": "https://ai.google.dev/gemini-api/docs/image-generation",
+        "publisher": "Google",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "inferred-from-id"
+    },
+    {
+      "id": "zai-glm-documented",
+      "match": { "kind": "regex", "pattern": "^glm-(4\\.7|5\\.1)$" },
+      "provider": "Z.AI",
+      "family": "glm",
+      "modelType": "reasoning-text",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": {
+        "controlType": "boolean",
+        "field": "thinking.type",
+        "note": "Current GLM families expose thinking.type as enabled/disabled, not a low/medium/high ladder.",
+        "values": ["enabled", "disabled"],
+        "default": "enabled"
+      },
+      "source": {
+        "url": "https://docs.z.ai/guides/capabilities/thinking",
+        "publisher": "Z.AI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "documented"
+    },
+    {
+      "id": "zai-glm-gateway-alias-unknown",
+      "match": { "kind": "prefix", "pattern": "glm-" },
+      "provider": "Z.AI", "family": "glm", "modelType": "reasoning-text", "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] }, "tools": "unknown", "streaming": "unknown",
+      "reasoning": { "controlType": "unknown", "note": "Exact gateway model alias lacks authoritative control evidence." },
+      "source": { "url": "https://docs.z.ai/guides/capabilities/thinking", "publisher": "Z.AI", "retrieved": "2026-07-12" },
+      "confidence": "low"
+    },
+    {
+      "id": "xai-grok",
+      "match": { "kind": "prefix", "pattern": "grok" },
+      "provider": "xAI",
+      "family": "grok",
+      "modelType": "reasoning-text",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "supported",
+      "streaming": "supported",
+      "reasoning": {
+        "controlType": "categorical",
+        "field": "reasoning_effort",
+        "note": "xAI reasoning levels and defaults vary by exact Grok model; confirm by probe.",
+        "values": ["low", "high"],
+        "default": "low"
+      },
+      "source": {
+        "url": "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+        "publisher": "xAI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "documented"
+    },
+    {
+      "id": "deepseek",
+      "match": { "kind": "prefix", "pattern": "deepseek" },
+      "provider": "DeepSeek",
+      "family": "deepseek",
+      "modelType": "reasoning-text",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "unknown" },
+      "source": {
+        "url": "https://api-docs.deepseek.com/",
+        "publisher": "DeepSeek",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "moonshot-kimi",
+      "match": { "kind": "prefix", "pattern": "kimi" },
+      "provider": "Moonshot",
+      "family": "kimi",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "unknown" },
+      "source": {
+        "url": "https://platform.moonshot.ai/docs",
+        "publisher": "Moonshot AI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "minimax",
+      "match": { "kind": "prefix", "pattern": "minimax" },
+      "provider": "MiniMax",
+      "family": "minimax",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "unknown" },
+      "source": {
+        "url": "https://www.minimax.io/platform",
+        "publisher": "MiniMax",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "qwen-vl",
+      "match": { "kind": "regex", "pattern": "qwen.*vl" },
+      "provider": "Alibaba",
+      "family": "qwen-vl",
+      "modelType": "vision-input",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text", "image"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "unknown" },
+      "source": {
+        "url": "https://qwenlm.github.io/",
+        "publisher": "Alibaba Qwen",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "inferred-from-id"
+    },
+    {
+      "id": "qwen-text",
+      "match": { "kind": "prefix", "pattern": "qwen" },
+      "provider": "Alibaba",
+      "family": "qwen",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "unknown" },
+      "source": {
+        "url": "https://qwenlm.github.io/",
+        "publisher": "Alibaba Qwen",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "google-gemma",
+      "match": { "kind": "prefix", "pattern": "gemma" },
+      "provider": "Google",
+      "family": "gemma",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "none" },
+      "source": {
+        "url": "https://ai.google.dev/gemma/docs",
+        "publisher": "Google",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "meta-llama",
+      "match": { "kind": "prefix", "pattern": "llama" },
+      "provider": "Meta",
+      "family": "llama",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "supported",
+      "reasoning": { "controlType": "none" },
+      "source": {
+        "url": "https://www.llama.com/docs/",
+        "publisher": "Meta",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "low"
+    },
+    {
+      "id": "image-sdxl",
+      "match": { "kind": "prefix", "pattern": "sdxl" },
+      "provider": "Stability",
+      "family": "sdxl",
+      "modelType": "image-generation",
+      "routes": ["unsupported"],
+      "modalities": { "input": ["text"], "output": ["image"] },
+      "tools": "unsupported",
+      "streaming": "unsupported",
+      "reasoning": { "controlType": "none" },
+      "unavailableReason": "Image-generation model (SDXL); not a chat model.",
+      "source": {
+        "url": "https://stability.ai/",
+        "publisher": "Stability AI",
+        "retrieved": "2026-07-12"
+      },
+      "confidence": "inferred-from-id"
+    },
+    {
+      "id": "voice-studio",
+      "match": { "kind": "prefix", "pattern": "voice-" },
+      "provider": "unknown",
+      "family": "voice",
+      "modelType": "audio-voice",
+      "routes": ["unsupported"],
+      "modalities": { "input": ["text", "audio"], "output": ["audio"] },
+      "tools": "unsupported",
+      "streaming": "unknown",
+      "reasoning": { "controlType": "none" },
+      "unavailableReason": "Audio/voice model; Claude Desktop's chat surface cannot drive it.",
+      "source": { "url": "", "publisher": "gateway", "retrieved": "2026-07-12" },
+      "confidence": "inferred-from-id"
+    },
+    {
+      "id": "tencent-hunyuan-mt",
+      "match": { "kind": "prefix", "pattern": "hy-mt" },
+      "provider": "Tencent",
+      "family": "hunyuan-mt",
+      "modelType": "text-chat",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "unknown",
+      "reasoning": { "controlType": "unknown" },
+      "note": "Likely a Hunyuan machine-translation model; exact capabilities unconfirmed. Kept as text-chat with unknown reasoning until a live probe confirms.",
+      "source": { "url": "https://cloud.tencent.com/product/hunyuan", "publisher": "Tencent", "retrieved": "2026-07-12" },
+      "confidence": "low"
+    },
+    {
+      "id": "local-gguf-path",
+      "match": { "kind": "regex", "pattern": "\\.gguf$|/llama\\.cpp/|^mradermacher-|^mythalion-" },
+      "provider": "local",
+      "family": "gguf",
+      "modelType": "local-gguf",
+      "routes": ["openai-chat"],
+      "modalities": { "input": ["text"], "output": ["text"] },
+      "tools": "unknown",
+      "streaming": "unknown",
+      "reasoning": { "controlType": "unknown" },
+      "note": "Local GGUF/llama.cpp model served through the gateway's OpenAI-compatible endpoint. Capabilities depend on the local server; keep unknown until probed.",
+      "source": { "url": "https://github.com/ggml-org/llama.cpp", "publisher": "llama.cpp", "retrieved": "2026-07-12" },
+      "confidence": "inferred-from-id"
+    }
+  ]
+}

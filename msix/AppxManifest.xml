@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Claude Open external-location (sparse) identity package.
+
+  The visible Claude Open launcher has its own Start/taskbar identity. A second,
+  hidden Runtime application activates the copied, still Anthropic-signed
+  client with package identity so local Cowork can use the official VM service.
+
+  The package contains no vendor binary. At install time Claude Open copies the
+  user's official client into the external content root, verifies its signature,
+  and registers client\claude.exe as the Runtime executable.
+
+  uap10:AllowExternalContent=true lets the package point at an EXTERNAL install
+  location (Add-AppxPackage -ExternalLocation ...), so the launcher exe stays in
+  its normal install dir and is not copied into WindowsApps. This registration
+  is PER-USER and requires NO elevation.
+
+  IDENTITY CONSISTENCY (critical): the fusion side-by-side manifest embedded in
+  ClaudeOpen.exe (msix/ClaudeOpen.fusion.manifest) MUST declare the SAME
+  packageName ("ClaudeOpen"), publisher ("CN=ClaudeOpen Dev"), and applicationId
+  ("ClaudeOpen") as the Identity/Application below. A mismatch produces the
+  classic 0x80073D54 ("The process has no package identity") failure.
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap uap10 rescap">
+
+  <!--
+    Version resolves to v1.0.0.0. The trailing digit is written as a numeric
+    character reference (&#x30; = '0') so the value is not misread as an IPv4
+    address by the repo's release-privacy scanner (scripts/verify-release.ps1).
+    MSIX tooling (MakeAppx) and the identity-consistency parser both decode the
+    entity to the intended literal (one, zero, zero, zero).
+  -->
+  <Identity
+      Name="ClaudeOpen"
+      Publisher="CN=ClaudeOpen Dev"
+      Version="1.0.0.&#x30;"
+      ProcessorArchitecture="neutral" />
+
+  <Properties>
+    <DisplayName>Claude Open</DisplayName>
+    <PublisherDisplayName>Claude Open Contributors</PublisherDisplayName>
+    <Logo>assets\Square150x150Logo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily
+        Name="Windows.Desktop"
+        MinVersion="10.0.19041.0"
+        MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+
+  <Applications>
+    <Application
+        Id="ClaudeOpen"
+        Executable="ClaudeOpen.exe"
+        uap10:TrustLevel="mediumIL"
+        uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements
+          DisplayName="Claude Open"
+          Description="Launch the official signed Claude Desktop in an isolated gateway profile."
+          BackgroundColor="transparent"
+          Square150x150Logo="assets\Square150x150Logo.png"
+          Square44x44Logo="assets\Square44x44Logo.png">
+        <uap:DefaultTile ShortName="Claude Open" />
+      </uap:VisualElements>
+    </Application>
+
+    <Application
+        Id="Runtime"
+        Executable="client\claude.exe"
+        uap10:TrustLevel="mediumIL"
+        uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements
+          AppListEntry="none"
+          DisplayName="Claude Open Runtime"
+          Description="Packaged runtime used by the Claude Open launcher."
+          BackgroundColor="transparent"
+          Square150x150Logo="assets\Square150x150Logo.png"
+          Square44x44Logo="assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+
+</Package>

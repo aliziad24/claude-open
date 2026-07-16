@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-scan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Test the privacy scanner
+        shell: powershell
+        run: .\scripts\verify-release.selftest.ps1
+
+      - name: Scan source and Git history
+        shell: powershell
+        run: .\scripts\verify-release.ps1 -IncludeGitHistory
+
+      - name: Build bootstrap release
+        shell: powershell
+        run: .\scripts\Build-Release.ps1 -OutputPath .\dist\ClaudeOpen-ci
+
+      - name: Scan exact release stage
+        shell: powershell
+        run: .\scripts\verify-release.ps1 -Path .\dist\ClaudeOpen-ci

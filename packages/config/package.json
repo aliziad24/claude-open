@@ -1,0 +1,14 @@
+{
+  "name": "@claude-open/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./store": "./src/store.js"
+  },
+  "scripts": {
+    "test": "node --test test"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "inferenceProvider": "gateway",
+  "inferenceGatewayBaseUrl": "http://127.0.0.1:PORT",
+  "inferenceCredentialKind": "static",
+  "inferenceGatewayApiKey": "EPHEMERAL_LOOPBACK_TOKEN",
+  "inferenceGatewayAuthScheme": "bearer",
+  "modelDiscoveryEnabled": false,
+  "disableAutoUpdates": true,
+  "chatTabEnabled": true,
+  "inferenceModels": [
+    {
+      "name": "claude-opus-4",
+      "labelOverride": "Claude Opus 4 (Loopback)"
+    },
+    {
+      "name": "claude-sonnet-4",
+      "labelOverride": "Claude Sonnet 4 (Loopback)"
+    }
+  ]
+}
