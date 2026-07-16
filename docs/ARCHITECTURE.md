@@ -15,6 +15,16 @@ Claude Open Control Center ----> 127.0.0.1 random port ----TLS----> user gateway
 hidden packaged Runtime ---------- official signed client
 ```
 
+When explicitly enabled, the adapter also starts a separate loopback-only Remote Companion service. The companion holds pairing/device/session state in memory, serves a mobile PWA, and calls only the adapter's authenticated model, message, effort, and usage surfaces. A trusted HTTPS reverse proxy may reach the companion loopback port; the companion itself never binds to the LAN.
+
+```text
+phone PWA -- private HTTPS tunnel --> 127.0.0.1 companion
+                                              |
+                                   paired narrow API
+                                              v
+                                   authenticated adapter --> gateway
+```
+
 Shared packages provide configuration validation, discovery/aliases, model facts, protocol conversion, streaming/tool semantics, health, conformance, and usage. Gateway-scoped state is keyed by a non-reversible fingerprint that excludes the secret.
 
 Routing is evidence-driven. Explicit configuration and observed metadata take precedence over registry facts; unknown routes fail rather than being guessed from model names. Effort fields are emitted only when their exact typed controls are verified for the current gateway.

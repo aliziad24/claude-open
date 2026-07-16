@@ -21,6 +21,14 @@ Always use the **Claude Open** icon or `ClaudeOpen.exe`; do not start `client\cl
 
 For Cowork, check Virtual Machine Platform, virtualization, reboot state, and `CoworkVMService`. For SSH, make the same host work with `ssh host-alias` in PowerShell first, then relaunch Claude Open so it reloads `%USERPROFILE%\.ssh\config`.
 
+## Mobile companion fails or reconnects
+
+- Confirm Mobile companion is enabled, configuration was saved, and Claude Open is currently running.
+- Reopen **Mobile setup** for the current pairing code; restart Claude Open if it expired.
+- Confirm the companion works through **local preview** before diagnosing Tailscale.
+- Confirm the foreground Tailscale Serve command is still running and the phone is signed into the same tailnet.
+- Never work around a tunnel problem by binding to `0.0.0.0`, forwarding the router port, or placing the pairing code in a URL.
+
 ## Safe bug reports
 
 Include Windows version, Claude Open release, official client version, gateway protocol, and a redacted error. Do not post the gateway hostname if private, API keys, full configuration, conversations, SSH details, runtime tokens, profile directories, or raw captures.

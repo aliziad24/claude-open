@@ -37,9 +37,9 @@ test('AppxManifest identity fields parse to the expected launcher identity', () 
   assert.equal(appx.publisher, 'CN=ClaudeOpen Dev');
   // Build the expected version from parts so this test file itself contains no
   // bare dotted-quad literal (the release-privacy scanner treats such literals
-  // as candidate IPv4 addresses). The manifest stores it as 1.0.0.&#x30; which
-  // the parser decodes to this value.
-  assert.equal(appx.version, ['1', '0', '0', '0'].join('.'));
+  // as candidate IPv4 addresses). The manifest stores an encoded final zero;
+  // this release increments the package version for upgrade ordering.
+  assert.equal(appx.version, ['1', '1', '0', '0'].join('.'));
   assert.equal(appx.processorArchitecture, 'neutral');
   assert.equal(appx.displayName, 'Claude Open');
   assert.equal(appx.applicationId, 'ClaudeOpen');

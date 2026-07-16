@@ -18,7 +18,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMockGateway } from '../../../tests/fixtures/mock-gateway.mjs';
@@ -154,6 +154,58 @@ test('adapter warms its catalog cache at startup so the first client probe is in
     assert.equal(fetchImpl.counts.models, 1, 'the first client probe hits the warm cache (no re-fetch)');
     assert.ok(j.data.some((m) => m.claude_open.realId === 'claude-opus-4-7'));
   } finally {
+    if (started) await started.adapter.close();
+    await gw.close();
+    rmSync(cfgDir, { recursive: true, force: true });
+    rmSync(rtDir, { recursive: true, force: true });
+  }
+});
+
+test('production entrypoint starts the opt-in companion on a separate authenticated loopback port', async () => {
+  const cfgDir = mkdtempSync(join(tmpdir(), 'co-companion-cfg-'));
+  const rtDir = mkdtempSync(join(tmpdir(), 'co-companion-rt-'));
+  const gw = createMockGateway({ protocols: ['anthropic'], models: [{ id: 'claude-opus-4-7' }] });
+  const gwUrl = await gw.listen();
+  const env = {
+    CLAUDE_OPEN_CONFIG_DIR: cfgDir,
+    CLAUDE_OPEN_RUNTIME_DIR: rtDir,
+    CLAUDE_OPEN_PORT: '0',
+    CLAUDE_OPEN_COMPANION: '1',
+    CLAUDE_OPEN_SKIP_ACL: '1',
+    CLAUDE_OPEN_CLIENT_TOKEN: 'companion-entrypoint-client',
+    USERNAME: process.env.USERNAME,
+    APPDATA: process.env.APPDATA,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+  };
+  saveStoredConfig(
+    { baseUrl: gwUrl, auth: { kind: 'none' }, profile: 'mixed-auto', modelsEndpoint: '/v1/models', companion: { enabled: true } },
+    env,
+  );
+  let started;
+  try {
+    started = await start({ env });
+    assert.ok(started.companion, 'companion starts only when explicitly enabled');
+    const companionPort = started.companion.server.address().port;
+    assert.notEqual(companionPort, started.port, 'companion and adapter have separate listeners');
+    assert.equal(started.companion.server.address().address, '127.0.0.1');
+    const base = `http://127.0.0.1:${companionPort}`;
+    const paired = await fetch(`${base}/api/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ code: started.companion.pairingCode }),
+    });
+    assert.equal(paired.status, 200);
+    const cookie = paired.headers.get('set-cookie').split(';', 1)[0];
+    const models = await fetch(`${base}/api/models`, { headers: { cookie } });
+    assert.equal(models.status, 200);
+    assert.ok((await models.json()).data.some((model) => model.display_name.includes('claude-opus-4-7')));
+
+    const runtime = JSON.parse(readFileSync(join(rtDir, 'runtime.json'), 'utf8'));
+    assert.equal(runtime.companion.enabled, true);
+    assert.equal(runtime.companion.port, companionPort);
+    assert.equal(runtime.companion.exposure, 'loopback-only');
+  } finally {
+    if (started?.companion) await started.companion.close();
     if (started) await started.adapter.close();
     await gw.close();
     rmSync(cfgDir, { recursive: true, force: true });

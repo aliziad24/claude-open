@@ -13,5 +13,6 @@ Security invariants:
 7. Unknown model routes/capabilities and unverified effort controls fail closed.
 8. Install/update/uninstall actions are constrained by ownership markers and release manifests.
 9. Public source/releases exclude personal data, conversations, live evidence, private infrastructure details, secrets, and vendor binaries.
+10. Remote Companion is opt-in, loopback-only, same-origin, paired, rate-limited, and in-memory; remote access requires a separate trusted HTTPS tunnel.
 
 The configured gateway is a trusted data processor for prompts and outputs. Claude Open does not make an untrusted gateway safe.

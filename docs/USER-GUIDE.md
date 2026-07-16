@@ -31,6 +31,14 @@ The floating widget inside Claude Open shows requests and tokens observed by the
 
 This is not provider billing or subscription quota. It resets when the adapter restarts and does not count requests made outside Claude Open.
 
+## Mobile companion
+
+The opt-in Remote Companion provides mobile chat, models, verified effort controls, usage, streaming cancellation, and reconnect catch-up. Enable it in Control Center, save, launch, then select **Mobile setup**.
+
+The service stays on loopback. For a phone, use the copied Tailscale Serve command to create a private HTTPS route; do not expose the port directly. Pair with the temporary code shown in Control Center. Companion sessions remain in PC memory only and do not import desktop or normal Claude history.
+
+See [Remote Companion](REMOTE-COMPANION.md) for setup and limitations.
+
 ## Cowork
 
 Select Cowork from the Claude Open interface and start with a harmless task in a temporary folder. Local Cowork may require Virtual Machine Platform, hardware virtualization, a reboot, and the official `CoworkVMService`.

@@ -10,6 +10,8 @@ Normal Claude's profile is separate. Claude Open does not copy its conversations
 
 The upstream gateway receives the prompts, attachments, tool inputs, and outputs sent through it. Review that gateway's own privacy and retention policy.
 
+Remote Companion is disabled by default. When enabled, its expiring pairing code is written only to the same ACL-protected per-run `runtime.json` that the Control Center already uses for local adapter tokens. Device authorization, conversation history, and reconnect event buffers exist only in adapter-process memory. None are written to the repository, desktop profile, or runtime logs. The phone, private HTTPS tunnel, and configured gateway can transport or display companion prompts and outputs.
+
 ## Local protection
 
 The adapter listens only on loopback using a random port. Client and diagnostics endpoints have separate per-run tokens. Logs avoid headers/bodies and redact secret-shaped errors. Usage widget files contain session counts and public model metadata, not the base URL or API key.

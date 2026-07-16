@@ -22,6 +22,18 @@ test('defaultConfig has no vendor-specific hard-coded values', () => {
   assert.deepEqual(c.modelOverrides, {});
 });
 
+test('companion is opt-in and validates as a strict boolean', () => {
+  assert.equal(defaultConfig().companion.enabled, false);
+  const base = {
+    baseUrl: 'https://gateway.example.com',
+    auth: { kind: 'none' },
+    profile: 'mixed-auto',
+  };
+  assert.equal(validateConfig(base).ok, true);
+  assert.equal(validateConfig({ ...base, companion: { enabled: true } }).ok, true);
+  assert.equal(validateConfig({ ...base, companion: { enabled: 'yes' } }).ok, false);
+});
+
 test('redactSecret never exposes more than head + length', () => {
   assert.equal(redactSecret('supersecretvalue123'), 'supe…(len=19)');
   assert.equal(redactSecret(''), '<none>');

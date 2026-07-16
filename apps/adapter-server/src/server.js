@@ -586,7 +586,19 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         bodyObj.model = realId;
         const model = findModel(cache, realId) || normalizeCatalog([{ id: realId }], aliasMap, { resolveCaps })[0];
         const override = (config.modelOverrides || {})[realId];
-        applyEffortPreference(bodyObj, model, override, realId);
+        // Remote Companion may choose one already-proven effort value for this
+        // request only. Keeping this separate from the persisted desktop
+        // preference prevents a phone session from changing the desktop UI's
+        // selection or racing an unrelated desktop request.
+        const requestEffort = req.headers['x-claude-open-effort'];
+        if (requestEffort != null) {
+          if (Array.isArray(requestEffort) || requestEffort.length > 64 ||
+              !applyVerifiedEffortValue(bodyObj, model, override, realId, requestEffort)) {
+            return sendJson(res, 409, { type: 'error', error: { type: 'invalid_request_error', message: 'effort is not verified for this exact gateway, model, route, field, and value' } });
+          }
+        } else {
+          applyEffortPreference(bodyObj, model, override, realId);
+        }
         const wantStream = !!bodyObj.stream;
 
         if (wantStream) {
@@ -734,26 +746,33 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
   function applyEffortPreference(body, model, override, realId) {
     const pref = effortPreferences[realId];
     if (!pref) return;
+    applyVerifiedEffortValue(body, model, override, realId, pref.value, pref.field);
+  }
+
+  function applyVerifiedEffortValue(body, model, override, realId, requestedValue, expectedField = null) {
     const decision = resolveRoute({ realId, model, override, probeCache, gatewayFingerprint: fp });
     const control = enforcedReasoning(model, override, decision.route);
-    if (!control.showSelector || control.field !== pref.field ||
-        !conformance.isEnabled({ fingerprint: fp, realId, route: decision.route, field: pref.field, value: pref.value })) return;
+    const value = resolveCandidateValue(control, requestedValue);
+    if (value === NO_VALUE || !control.showSelector || !control.field ||
+        (expectedField && control.field !== expectedField) ||
+        !conformance.isEnabled({ fingerprint: fp, realId, route: decision.route, field: control.field, value })) return false;
     if (control.controlType === 'categorical') {
       if (body.output_config?.effort == null) {
         body.output_config ||= {};
-        body.output_config.effort = pref.value;
+        body.output_config.effort = value;
       }
     } else if (control.controlType === 'boolean') {
       if (body.thinking == null) {
         const enabledValue = Array.isArray(control.values) ? control.values[0] : 'enabled';
-        body.thinking = { type: Object.is(pref.value, enabledValue) ? 'enabled' : 'disabled' };
+        body.thinking = { type: Object.is(value, enabledValue) ? 'enabled' : 'disabled' };
       }
     } else if (control.controlType === 'numeric_budget' && body.thinking == null) {
       const off = control.specialValues?.off;
-      body.thinking = Object.is(pref.value, off)
+      body.thinking = Object.is(value, off)
         ? { type: 'disabled' }
-        : { type: 'enabled', budget_tokens: pref.value };
+        : { type: 'enabled', budget_tokens: value };
     }
+    return true;
   }
 
   return {

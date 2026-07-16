@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createAdapterServer } from './server.js';
 import { loadRuntime } from './config-loader.js';
+import { createRemoteCompanionServer } from '../../remote-companion/src/server.js';
 
 /** Resolve the isolated per-user runtime dir without hard-coding a drive. */
 export function runtimeDir(env = process.env) {
@@ -80,6 +81,41 @@ export async function start(opts = {}) {
   const preferred = parseInt(env.CLAUDE_OPEN_PORT || '0', 10) || 0;
   const port = await adapter.listen(preferred, '127.0.0.1');
 
+  // The mobile companion is deliberately a separate, opt-in loopback service.
+  // It never binds to the LAN or receives the upstream gateway credential. A
+  // trusted HTTPS tunnel (for example Tailscale Serve) may proxy to this port.
+  // Pairing and browser sessions are owned by the companion process and only
+  // its narrow chat/model/usage surface can call the authenticated adapter.
+  let companion = null;
+  let companionState = { enabled: false };
+  if (env.CLAUDE_OPEN_COMPANION === '1') {
+    try {
+      companion = createRemoteCompanionServer({
+        adapterBaseUrl: `http://127.0.0.1:${port}`,
+        clientToken,
+        log,
+        // Companion-to-adapter traffic is always a genuine loopback request.
+        // A test gateway fetch stub belongs only inside the adapter.
+        fetchImpl: fetch,
+      });
+      const companionPreferred = parseInt(env.CLAUDE_OPEN_COMPANION_PORT || '0', 10) || 0;
+      const companionPort = await companion.listen(companionPreferred, '127.0.0.1');
+      companionState = {
+        enabled: true,
+        port: companionPort,
+        pairingCode: companion.pairingCode,
+        pairingExpiresAt: companion.pairingExpiresAt,
+        exposure: 'loopback-only',
+      };
+      log({ evt: 'companion-listening', port: companionPort, exposure: 'loopback-only' });
+    } catch (e) {
+      if (companion) await companion.close().catch(() => {});
+      companion = null;
+      companionState = { enabled: false, error: 'startup-failed' };
+      log({ evt: 'warn', msg: `Remote Companion startup failed: ${e.message}` });
+    }
+  }
+
   // STARTUP CATALOG WARM (NEXT-CORRECTIVE-WAVE): pre-fetch the model catalog once
   // as soon as we are listening, so the genuine client's very first ConfigHealth
   // reachability probe (GET /v1/models, and the /v1/messages tier-probe
@@ -142,6 +178,7 @@ export async function start(opts = {}) {
           secretSource: loaded.secretStore.source(),
           pid: process.pid,
           startedAt: new Date().toISOString(),
+          companion: companionState,
         },
         null,
         2,
@@ -153,7 +190,7 @@ export async function start(opts = {}) {
   }
 
   log({ evt: 'listening', port, gateway: adapter.gatewayFingerprint, secretSource: loaded.secretStore.source() });
-  return { adapter, port, runtimeDir: rtDir, clientToken };
+  return { adapter, companion, port, runtimeDir: rtDir, clientToken };
 }
 
 /**
