@@ -1564,7 +1564,7 @@ namespace ClaudeOpenLauncher
             }
 
             // Build the write-3p-config argv. Uses the LIVE bound adapter port
-            // (activePort) â€” the config is written AFTER PollReadiness confirmed
+            // (activePort) - the config is written AFTER PollReadiness confirmed
             // the adapter is listening (activePort>0) and BEFORE the client
             // launches. FIX 3(a): also passes --assign-family-tiers + --unhealthy
             // so anthropicFamilyTier tags are written and the client's per-tier
