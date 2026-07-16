@@ -60,7 +60,14 @@ async function invokeFixture({ complete = true, sensitive = false } = {}) {
   const children = await readdir(evidence).catch(() => []);
   assert.equal(children.length, 1, `expected one evidence run; stdout=${result.stdout}; stderr=${result.stderr}`);
   const runPath = path.join(evidence, children[0]);
-  return { temp, result, runPath, run: JSON.parse(await readFile(path.join(runPath, 'run.json'), 'utf8')) };
+  const runFile = path.join(runPath, 'run.json');
+  let runText;
+  try {
+    runText = await readFile(runFile, 'utf8');
+  } catch (error) {
+    assert.fail(`runner did not write run.json (${error.message}); status=${result.status}; stdout=${result.stdout}; stderr=${result.stderr}`);
+  }
+  return { temp, result, runPath, run: JSON.parse(runText) };
 }
 
 test('complete sanitized evidence captures all six failures and passes P0.0', async (t) => {
