@@ -1,5 +1,11 @@
 # User guide
 
+Claude Open has its own Start-menu icon, profile, credential, and application identity. It can be used at the same time as normal Claude. Always launch it through **Claude Open**; launching the copied client executable directly bypasses isolation setup.
+
+## Before you start
+
+You need Windows 10/11 x64 and a compatible gateway root URL. The gateway may require an API key, but never paste that key into an AI conversation, command line, issue, log, or screenshot. Enter it only in Claude Open Control Center, where it is saved through Windows Credential Manager.
+
 ## First launch
 
 Open **Claude Open** from Start. In the Control Center:
@@ -57,6 +63,8 @@ Host development-box
 Keep private keys only in your `.ssh` directory and protect them with normal Windows permissions/passphrases. Claude Open never copies SSH keys or host details into its repository or release.
 
 Launch Claude Open, open its environment/computer connection picker, choose the SSH connection, and select the configured host. If it is missing, close Claude Open, confirm `ssh development-box` works in PowerShell, and relaunch through the **Claude Open** icon—not by running `client\claude.exe` directly.
+
+Run only commands you understand on hosts you are authorized to access. Do not share hostnames, usernames, passwords, private keys, or SSH history in support reports or AI conversations.
 
 ## Updating
 

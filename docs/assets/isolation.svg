@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">Normal Claude and Claude Open isolation</title>
+  <desc id="desc">Two independent application identities use separate profiles, shortcuts, credentials, and owned files.</desc>
+  <rect width="1200" height="380" rx="24" fill="#f8fafc"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <rect x="55" y="45" width="450" height="290" rx="22" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+    <circle cx="105" cy="95" r="24" fill="#64748b"/><text x="145" y="104" font-size="26" font-weight="700" fill="#0f172a">Normal Claude</text>
+    <text x="89" y="157" font-size="18" fill="#475569">Official app identity</text><circle cx="455" cy="151" r="7" fill="#64748b"/>
+    <text x="89" y="202" font-size="18" fill="#475569">Normal Claude profile</text><circle cx="455" cy="196" r="7" fill="#64748b"/>
+    <text x="89" y="247" font-size="18" fill="#475569">Normal shortcut + account</text><circle cx="455" cy="241" r="7" fill="#64748b"/>
+    <text x="89" y="292" font-size="18" fill="#475569">Unchanged by default</text><circle cx="455" cy="286" r="7" fill="#22c55e"/>
+    <rect x="695" y="45" width="450" height="290" rx="22" fill="#eef2ff" stroke="#7c3aed" stroke-width="2"/>
+    <circle cx="745" cy="95" r="24" fill="#7c3aed"/><path d="M733 82h24v6h-18v9h16v6h-16v9h18v6h-24z" fill="#fff"/>
+    <text x="785" y="104" font-size="26" font-weight="700" fill="#312e81">Claude Open</text>
+    <text x="729" y="157" font-size="18" fill="#4338ca">ClaudeOpen app identity</text><circle cx="1095" cy="151" r="7" fill="#7c3aed"/>
+    <text x="729" y="202" font-size="18" fill="#4338ca">Isolated profile</text><circle cx="1095" cy="196" r="7" fill="#7c3aed"/>
+    <text x="729" y="247" font-size="18" fill="#4338ca">Dedicated shortcut + credential</text><circle cx="1095" cy="241" r="7" fill="#7c3aed"/>
+    <text x="729" y="292" font-size="18" fill="#4338ca">Owned install + uninstaller</text><circle cx="1095" cy="286" r="7" fill="#22c55e"/>
+    <path d="M540 190h120" stroke="#94a3b8" stroke-width="3" stroke-dasharray="8 8"/>
+    <rect x="534" y="154" width="132" height="72" rx="16" fill="#0f172a"/><text x="561" y="181" fill="#fff" font-size="15" font-weight="700">SEPARATE</text><text x="552" y="207" fill="#cbd5e1" font-size="14">can run together</text>
+  </g>
+</svg>
