@@ -92,7 +92,10 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     }
   }
 
-  const cache = new CatalogCache({ ttlMs: config.catalogTtlMs ?? 5 * 60 * 1000 });
+  // The gateway is the source of truth for the picker. A short TTL lets additions
+  // and removals appear automatically while retaining last-known-good behavior
+  // during a temporary discovery failure.
+  const cache = new CatalogCache({ ttlMs: config.catalogTtlMs ?? 30 * 1000 });
   const probeCache = new Map();
   const diagToken = randomBytes(24).toString('hex'); // guards /diagnostics
   const resolveCaps = (id) => resolveCapabilities(REGISTRY, id);
@@ -299,8 +302,9 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
    * @param {boolean} [opts.preferCache=true] serve a warm cache without fetching
    */
   async function getCatalog({ preferCache = true } = {}) {
-    // Fast path: a populated cache answers the probe without touching upstream.
-    if (preferCache && cache.hasData()) return cache.serve();
+    // Fast path only while fresh. The previous hasData() check made the first
+    // successful catalog permanent for the lifetime of the adapter.
+    if (preferCache && cache.isFresh()) return cache.serve();
     try {
       const headers = { ...upstreamHeaders(), ...cache.conditionalHeaders() };
       const resp = await fetchImpl(`${base}${config.modelsEndpoint || '/v1/models'}?limit=1000`, {
@@ -494,6 +498,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         // Emit an Anthropic-picker-shaped list: alias as id, real name as display.
         const data = served.models
           .filter((m) => isChatUsable({ modelType: m.modelType, routes: m.routes }))
+          .sort(compareModelsByFamily)
           .map((m) => ({
             id: m.stableAlias,
             display_name: m.displayName,
@@ -852,6 +857,34 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
 function findModel(cache, realId) {
   const served = cache.serve();
   return served.models.find((m) => m.realId === realId) || null;
+}
+
+function modelFamilyRank(model) {
+  const value = String(model?.realId || model?.displayName || '').toLowerCase();
+  if (/^claude(?:-|$)/.test(value)) return 0;
+  if (/^(?:gpt|o[1-9]|codex)(?:-|\.|$)/.test(value)) return 1;
+  if (/^grok(?:-|\.|$)/.test(value)) return 2;
+  if (/^(?:kimi|moonshot)(?:-|\.|$)/.test(value)) return 3;
+  if (/^minimax(?:-|\.|$)/.test(value)) return 4;
+  if (/^qwen(?:-|\.|$)/.test(value)) return 5;
+  return 6;
+}
+
+function compareModelsByFamily(a, b) {
+  const familyDelta = modelFamilyRank(a) - modelFamilyRank(b);
+  if (familyDelta) return familyDelta;
+  const claudePreference = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6'];
+  if (modelFamilyRank(a) === 0) {
+    const ai = claudePreference.indexOf(a.realId);
+    const bi = claudePreference.indexOf(b.realId);
+    const preferredDelta = (ai < 0 ? claudePreference.length : ai) - (bi < 0 ? claudePreference.length : bi);
+    if (preferredDelta) return preferredDelta;
+  }
+  return String(a.realId || a.displayName || '').localeCompare(
+    String(b.realId || b.displayName || ''),
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  );
 }
 
 /**

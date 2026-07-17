@@ -24,9 +24,9 @@ Claude Open runs the official Anthropic-signed Claude Desktop client with an iso
 |---|---|
 | Separate app | Dedicated **Claude Open** identity, Start icon, install directory, profile, and credential target |
 | Bring your gateway | First-run base URL, authentication style, and API key fields |
-| All compatible models | Live `/v1/models` discovery; no private or user-specific catalog in source |
+| All compatible models | Live `/v1/models` discovery with automatic add/remove refresh and family ordering; no private or user-specific catalog in source |
 | Reasoning effort | Model-specific controls appear only after the gateway verifies support |
-| Cowork and SSH | Current Claude surfaces plus safe setup and functional verification guidance |
+| Cowork and SSH | Current Claude surfaces plus a managed remote-loopback SSH bridge for Code sessions |
 | Usage widget | Secret-free local session token/context telemetry |
 | Mobile companion | Opt-in paired PWA with resumable streaming through a private HTTPS tunnel |
 | No developer setup | Bundled Node.js runtime; no Node, npm, Git, or SDK required |

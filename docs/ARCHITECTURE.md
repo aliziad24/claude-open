@@ -15,6 +15,17 @@ Claude Open Control Center ----> 127.0.0.1 random port ----TLS----> user gateway
 hidden packaged Runtime ---------- official signed client
 ```
 
+When an approved SSH Code target is active, the launcher uses the user's existing Windows OpenSSH configuration to create a lifecycle-managed reverse forward. Only remote `127.0.0.1:<adapter-port>` is bound and forwarded to the PC's loopback adapter. The adapter remains unavailable on LAN and tailnet interfaces, and neither the gateway credential nor an SSH private key is copied.
+
+```text
+remote Code CLI --> 127.0.0.1 adapter port
+                         |
+                 OpenSSH reverse forward
+                         |
+                         v
+PC 127.0.0.1 random adapter port --> user gateway
+```
+
 When explicitly enabled, the adapter also starts a separate loopback-only Remote Companion service. The companion holds pairing/device/session state in memory, serves a mobile PWA, and calls only the adapter's authenticated model, message, effort, and usage surfaces. A trusted HTTPS reverse proxy may reach the companion loopback port; the companion itself never binds to the LAN.
 
 ```text

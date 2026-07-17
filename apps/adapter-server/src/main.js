@@ -162,7 +162,7 @@ export async function start(opts = {}) {
       }
     };
     await refreshWidget();
-    setInterval(refreshWidget, 15000).unref();
+    setInterval(refreshWidget, 10000).unref();
   }
 
   const runtimeFile = join(rtDir, 'runtime.json');

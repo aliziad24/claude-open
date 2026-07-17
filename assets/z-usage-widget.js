@@ -6,7 +6,7 @@
 
   const STYLE_ID = 'claude-open-usage-style';
   const ROOT_ID = 'claude-open-usage-widget';
-  const POLL_MS = 15000;
+  const POLL_MS = 10000;
   let open = false;
   let lastUsage = null;
   let lastModels = [];
@@ -66,6 +66,8 @@
       .co-usage-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
       .co-usage-title{font-size:14px;font-weight:700}
       .co-usage-close{border:0;background:transparent;color:#b8b5a9;cursor:pointer;font-size:18px;line-height:1}
+      .co-usage-refresh{border:1px solid rgba(255,255,255,.16);background:#292825;color:#f5f4ef;border-radius:7px;padding:5px 9px;cursor:pointer}
+      .co-usage-refresh:disabled{cursor:wait;opacity:.7}
       .co-usage-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
       .co-usage-card{background:#292825;border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:9px}
       .co-usage-label{color:#aaa79f;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
@@ -121,11 +123,21 @@
     const panel = element('section', 'co-usage-panel');
     const head = element('div', 'co-usage-head');
     head.appendChild(element('div', 'co-usage-title', account.available ? 'Gateway usage' : 'Session usage'));
+    const actions = element('div', 'co-usage-row');
+    const refreshButton = element('button', 'co-usage-refresh', 'Refresh');
+    refreshButton.type = 'button';
+    refreshButton.addEventListener('click', async () => {
+      refreshButton.disabled = true;
+      refreshButton.textContent = 'Refreshing…';
+      const before = lastUsage?.gateway?.fetchedAt || 0;
+      await refresh({ waitForNewerThan: before });
+    });
     const close = element('button', 'co-usage-close', '×');
     close.type = 'button';
     close.setAttribute('aria-label', 'Close usage');
     close.addEventListener('click', () => { open = false; render(); });
-    head.appendChild(close);
+    actions.append(refreshButton, close);
+    head.appendChild(actions);
     panel.appendChild(head);
 
     if (!lastUsage) {
@@ -198,7 +210,7 @@
     root.appendChild(panel);
   }
 
-  async function refresh() {
+  async function readSnapshots() {
     try {
       const stamp = Date.now();
       const [usageResponse, modelsResponse] = await Promise.all([
@@ -210,9 +222,20 @@
         const payload = await modelsResponse.json();
         lastModels = Array.isArray(payload) ? payload : (payload.data || []);
       }
+      return true;
     } catch {
       // The adapter may still be starting. Keep the last good snapshot.
+      return false;
     }
+  }
+
+  async function refresh({ waitForNewerThan = 0 } = {}) {
+    const deadline = Date.now() + 12000;
+    do {
+      await readSnapshots();
+      if (!waitForNewerThan || Number(lastUsage?.gateway?.fetchedAt || 0) > Number(waitForNewerThan)) break;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    } while (Date.now() < deadline);
     render();
   }
 

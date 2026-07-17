@@ -20,4 +20,4 @@ If your gateway publishes account plan or usage JSON, close Claude Open and add 
 }
 ```
 
-Endpoints must be relative to the configured gateway origin. Claude Open calls them through the same base URL and the same active Credential Manager secret used for models and inference. The API key is never copied into the widget snapshot. Data refreshes every 15 seconds; if the gateway does not offer these endpoints, omit this block and the widget honestly shows session telemetry only.
+Endpoints must be relative to the configured gateway origin. Claude Open calls them through the same base URL and the same active Credential Manager secret used for models and inference. The API key is never copied into the widget snapshot. Data refreshes every 10 seconds, and the widget's **Refresh** button waits for a newer snapshot; if the gateway does not offer these endpoints, omit this block and the widget honestly shows session telemetry only.
