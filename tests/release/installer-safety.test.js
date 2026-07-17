@@ -44,6 +44,8 @@ test('uninstaller requires its exact marker and never removes official Claude', 
   assert.doesNotMatch(source, /Get-AppxPackage -Name Claude(?:\s|['"])/);
   assert.doesNotMatch(source, /winget[^\r\n]*uninstall|Anthropic\.Claude/);
   assert.match(source, /cmdkey\.exe '\/delete:ClaudeOpen\/gateway\/current'/);
+  assert.match(source, /GetFolderPath\('Desktop'\)/);
+  assert.match(source, /Claude Open\*\.lnk/);
   assert.match(source, /official Claude package and normal Claude user data were not changed/);
 });
 

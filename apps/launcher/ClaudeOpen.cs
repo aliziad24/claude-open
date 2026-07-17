@@ -30,6 +30,47 @@ namespace ClaudeOpenLauncher
     {
         [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern int SetCurrentProcessExplicitAppUserModelID(string appID);
+        private const string ClaudeOpenLauncherAumid = "ClaudeOpen.Launcher";
+
+        private delegate bool EnumWindowsCallback(IntPtr window, IntPtr state);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr state);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+        [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IWindowPropertyStore
+        {
+            [PreserveSig] int GetCount(out uint count);
+            [PreserveSig] int GetAt(uint index, out WindowPropertyKey key);
+            [PreserveSig] int GetValue(ref WindowPropertyKey key, out WindowPropertyValue value);
+            [PreserveSig] int SetValue(ref WindowPropertyKey key, ref WindowPropertyValue value);
+            [PreserveSig] int Commit();
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WindowPropertyKey
+        {
+            public Guid FormatId;
+            public uint PropertyId;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct WindowPropertyValue
+        {
+            [FieldOffset(0)] public ushort ValueType;
+            [FieldOffset(8)] public IntPtr PointerValue;
+        }
+
+        [DllImport("shell32.dll", PreserveSig = true)]
+        private static extern int SHGetPropertyStoreForWindow(
+            IntPtr window, ref Guid interfaceId, out IWindowPropertyStore propertyStore);
+
+        [DllImport("ole32.dll")]
+        private static extern int PropVariantClear(ref WindowPropertyValue value);
         // P/Invoke for Credential Manager
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         internal struct CREDENTIAL
@@ -177,15 +218,10 @@ namespace ClaudeOpenLauncher
 
         public ClaudeOpenForm()
         {
-            // Use the packaged runtime's AUMID for the control center too. The
-            // Start shortcut is stamped with this same value by the installer,
-            // so Windows groups the launcher and signed runtime under one Claude
-            // Open pin/taskbar button while normal Claude keeps its own AUMID.
-            string packageFamily = ResolveClaudeOpenPackageFamily();
-            string unifiedAumid = string.IsNullOrEmpty(packageFamily)
-                ? "ClaudeOpen.Launcher"
-                : packageFamily + "!Runtime";
-            SetCurrentProcessExplicitAppUserModelID(unifiedAumid);
+            // The shortcut must remain launcher-owned. Stamping it with the
+            // runtime package AUMID lets Windows bypass this control center and
+            // activate the signed client without the isolated profile/adapter.
+            SetCurrentProcessExplicitAppUserModelID(ClaudeOpenLauncherAumid);
             InitializePaths();
             InitializeComponent();
             LoadConfig();
@@ -2079,6 +2115,8 @@ namespace ClaudeOpenLauncher
         {
             bool statusChanged = false;
 
+            AlignClientWindowsWithLauncherIdentity();
+
             if (activePort > 0 && adapterProcess != null && !adapterProcess.HasExited)
                 RefreshSshBridges();
 
@@ -2312,6 +2350,57 @@ namespace ClaudeOpenLauncher
                 try { if (bridge != null) bridge.Dispose(); } catch { }
             }
             sshBridgeProcesses.Clear();
+        }
+
+        private void AlignClientWindowsWithLauncherIdentity()
+        {
+            string expectedClient = Path.Combine(FindInstallRoot(), "client", "claude.exe");
+            var processIds = new HashSet<uint>();
+            foreach (Process process in Process.GetProcessesByName("claude"))
+            {
+                try
+                {
+                    if (string.Equals(process.MainModule.FileName, expectedClient, StringComparison.OrdinalIgnoreCase))
+                        processIds.Add((uint)process.Id);
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+            if (processIds.Count == 0) return;
+
+            EnumWindows(delegate(IntPtr window, IntPtr state)
+            {
+                uint processId;
+                GetWindowThreadProcessId(window, out processId);
+                if (processIds.Contains(processId))
+                    SetWindowAppUserModelId(window, ClaudeOpenLauncherAumid);
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        private static bool SetWindowAppUserModelId(IntPtr window, string appUserModelId)
+        {
+            IWindowPropertyStore store = null;
+            var value = new WindowPropertyValue();
+            try
+            {
+                Guid interfaceId = typeof(IWindowPropertyStore).GUID;
+                if (SHGetPropertyStoreForWindow(window, ref interfaceId, out store) != 0 || store == null)
+                    return false;
+                var key = new WindowPropertyKey {
+                    FormatId = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
+                    PropertyId = 5
+                };
+                value.ValueType = 31; // VT_LPWSTR
+                value.PointerValue = Marshal.StringToCoTaskMemUni(appUserModelId);
+                return store.SetValue(ref key, ref value) == 0 && store.Commit() == 0;
+            }
+            catch { return false; }
+            finally
+            {
+                if (value.PointerValue != IntPtr.Zero) PropVariantClear(ref value);
+                if (store != null) Marshal.ReleaseComObject(store);
+            }
         }
 
         // FIX #5: terminate the real Claude client process(es) that belong to OUR

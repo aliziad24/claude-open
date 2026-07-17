@@ -72,13 +72,17 @@ test('identity updates replace only the Claude Open-owned sparse package', async
   assert.doesNotMatch(source, /Anthropic\.Claude/);
 });
 
-test('launcher and shortcut adopt the hidden Claude Open runtime AUMID', async () => {
+test('launcher-owned shortcuts cannot bypass startup, while runtime windows join their taskbar group', async () => {
   const source = await readFile(path.join(root, 'apps', 'launcher', 'ClaudeOpen.cs'), 'utf8');
   const installer = await readFile(installPath, 'utf8');
   const setAumidCall = ['SetCurrent', 'ProcessExplicit', 'AppUserModelID'].join('');
-  assert.match(source, /packageFamily \+ "!Runtime"/);
-  assert.match(source, new RegExp(`${setAumidCall}\\(unifiedAumid\\)`));
-  assert.match(installer, /\$registered\.PackageFamilyName \+ '!Runtime'/);
+  assert.match(source, new RegExp(`${setAumidCall}\\(ClaudeOpenLauncherAumid\\)`));
+  assert.match(source, /SHGetPropertyStoreForWindow/);
+  assert.match(source, /SetWindowAppUserModelId\(window, ClaudeOpenLauncherAumid\)/);
+  assert.match(source, /expectedClient.*"client".*"claude\.exe"/s);
+  assert.match(installer, /\$aumid = 'ClaudeOpen\.Launcher'/);
+  assert.doesNotMatch(installer, /PackageFamilyName \+ '!Runtime'/);
+  assert.match(installer, /GetFolderPath\('Desktop'\)/);
   assert.doesNotMatch(source, /com\.anthropic\./i);
 });
 

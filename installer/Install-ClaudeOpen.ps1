@@ -419,25 +419,55 @@ if (-not $NoShortcut) {
   $shortcutDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
   New-Item -ItemType Directory -Path $shortcutDir -Force | Out-Null
   $lnkPath = Join-Path $shortcutDir 'Claude Open.lnk'
+  $desktopPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Claude Open.lnk'
   $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($lnkPath)
-  $shortcut.TargetPath = Join-Path $target 'ClaudeOpen.exe'
-  $shortcut.WorkingDirectory = $target
-  $shortcut.IconLocation = (Join-Path $target 'ClaudeOpen.exe') + ',0'
-  $shortcut.Save()
-
-  # Stamp the shortcut with the hidden packaged runtime's AUMID. The launcher
-  # resolves and adopts this same value at startup, giving the user one Claude
-  # Open Start/taskbar identity even though a separate signed runtime process is
-  # required for Cowork. Normal Claude has a different package family/AUMID.
-  # WScript.Shell cannot set AUMID, so use the Windows Property System helper.
-  $aumid = $registered.PackageFamilyName + '!Runtime'
-  try {
-    Set-ShortcutAppUserModelId -LnkPath $lnkPath -AppUserModelId $aumid
-    Write-Host "Stamped shortcut AppUserModel.ID = $aumid (unified Claude Open identity)."
-  } catch {
-    Write-Warning "Could not stamp the shortcut AppUserModel.ID ($($_.Exception.Message)); the launcher still works but Windows may show a second Claude Open taskbar button."
+  $aumid = 'ClaudeOpen.Launcher'
+  foreach ($ownedShortcut in @($lnkPath, $desktopPath)) {
+    $shortcut = $shell.CreateShortcut($ownedShortcut)
+    $shortcut.TargetPath = Join-Path $target 'ClaudeOpen.exe'
+    $shortcut.WorkingDirectory = $target
+    $shortcut.IconLocation = (Join-Path $target 'ClaudeOpen.exe') + ',0'
+    $shortcut.Description = 'Claude Open (isolated gateway profile)'
+    $shortcut.Save()
+    try {
+      Set-ShortcutAppUserModelId -LnkPath $ownedShortcut -AppUserModelId $aumid
+    } catch {
+      Write-Warning "Could not stamp $ownedShortcut with AppUserModel.ID ($($_.Exception.Message))."
+    }
   }
+
+  # Repair only pre-existing Claude Open-owned taskbar pins. Never create a new
+  # taskbar pin, but remove numbered duplicates left by older installers.
+  $taskbarDir = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+  if (Test-Path -LiteralPath $taskbarDir) {
+    $pins = @(Get-ChildItem -LiteralPath $taskbarDir -Filter 'Claude Open*.lnk' -File -ErrorAction SilentlyContinue |
+      Sort-Object @{ Expression = { if ($_.Name -ieq 'Claude Open.lnk') { 0 } else { 1 } } }, Name)
+    $keptPin = $null
+    foreach ($pin in $pins) {
+      $existing = $shell.CreateShortcut($pin.FullName)
+      if ([string]::IsNullOrWhiteSpace($existing.TargetPath)) { continue }
+      try { $ownedTarget = [System.IO.Path]::GetFullPath($existing.TargetPath) } catch { continue }
+      if ($ownedTarget -ne (Join-Path $target 'ClaudeOpen.exe')) { continue }
+      if (-not $keptPin) {
+        $pinPath = $pin.FullName
+        $canonicalPin = Join-Path $taskbarDir 'Claude Open.lnk'
+        if ($pin.Name -ine 'Claude Open.lnk' -and -not (Test-Path -LiteralPath $canonicalPin)) {
+          Move-Item -LiteralPath $pin.FullName -Destination $canonicalPin
+          $pinPath = $canonicalPin
+          $existing = $shell.CreateShortcut($pinPath)
+        }
+        $keptPin = $pinPath
+        $existing.WorkingDirectory = $target
+        $existing.IconLocation = (Join-Path $target 'ClaudeOpen.exe') + ',0'
+        $existing.Description = 'Claude Open (isolated gateway profile)'
+        $existing.Save()
+        Set-ShortcutAppUserModelId -LnkPath $pinPath -AppUserModelId $aumid
+      } else {
+        Remove-Item -LiteralPath $pin.FullName -Force
+      }
+    }
+  }
+  Write-Host "Created one launcher-owned Claude Open identity for Start, desktop, and existing pins."
 }
 
 $finalCowork = Get-CoworkPrerequisiteState

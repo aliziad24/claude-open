@@ -5,7 +5,7 @@ Claude Open is designed to install and run separately from normal Claude. Both m
 | Boundary | Normal Claude | Claude Open |
 |---|---|---|
 | Windows package identity | Official Claude identity | `ClaudeOpen` sparse identity |
-| Start-menu identity | Official shortcut/AUMID | One dedicated Claude Open shortcut, shared by its launcher and hidden packaged runtime |
+| Start/menu/taskbar identity | Official shortcut/AUMID | One launcher-owned Claude Open AUMID; the hidden packaged runtime window joins this taskbar group |
 | Application directory | Official package location | User-selected Claude Open-owned directory |
 | Browser/profile data | Normal Claude profile | `%APPDATA%\ClaudeOpen\User Data\profile` |
 | Gateway credential | Not used by Claude Open | `ClaudeOpen/gateway/current` in Windows Credential Manager |
@@ -26,4 +26,4 @@ By default, setup neither upgrades nor uninstalls an existing official Claude pa
 4. Change a harmless setting in Claude Open and confirm it does not appear in normal Claude.
 5. Uninstall Claude Open and confirm normal Claude still launches unchanged.
 
-Automated tests enforce distinct normal/Open package identities, one unified Claude Open shortcut/runtime AUMID, hidden implementation-only package entries, profile-scoped launch/stop behavior, environment restoration, and an uninstaller that never removes the official package.
+Automated tests enforce distinct normal/Open package identities, launcher-owned shortcuts that cannot bypass isolation startup, window-level taskbar grouping for the hidden runtime, profile-scoped launch/stop behavior, environment restoration, and an uninstaller that never removes the official package.
