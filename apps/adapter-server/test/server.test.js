@@ -199,6 +199,36 @@ test('real server: /usage records real non-stream token usage and context withou
   });
 });
 
+test('real server: /usage fetches fresh account data through the configured gateway and active auth', async () => {
+  await withStack(
+    {
+      protocols: ['anthropic'],
+      models: [{ id: 'claude-opus-4-7' }],
+      auth: { kind: 'bearer', secret: 'fixture-secret' },
+      plan: { monthly_token_limit: 500_000_000 },
+      accountUsage: { monthly_used: 141_448_246 },
+    },
+    {
+      usage: {
+        adapter: 'mapped',
+        planEndpoint: '/api/billing/plan',
+        usageEndpoint: '/api/billing/usage',
+      },
+    },
+    async (local) => {
+      const result = await (await fetch(`${local}/usage`)).json();
+      assert.equal(result.gateway.source, 'configured-gateway');
+      assert.equal(result.gateway.plan.available, true);
+      assert.equal(result.gateway.plan.data.monthly_token_limit, 500_000_000);
+      assert.equal(result.gateway.usage.data.monthly_used, 141_448_246);
+      assert.equal(result.quota.source, 'gateway');
+      assert.equal(result.billing.source, 'gateway');
+      assert.ok(result.gateway.fetchedAt > 0);
+      assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
+    },
+  );
+});
+
 test('real server: port-conflict falls back to an ephemeral port (never assumes a fixed one)', async () => {
   // Occupy a port, then ask the adapter to prefer it; it must fall back.
   const gw = createMockGateway({ protocols: ['anthropic'], models: [{ id: 'claude-opus-4-7' }] });

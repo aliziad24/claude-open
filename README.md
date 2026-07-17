@@ -24,10 +24,10 @@ Claude Open runs the official Anthropic-signed Claude Desktop client with an iso
 |---|---|
 | Separate app | Dedicated **Claude Open** identity, Start icon, install directory, profile, and credential target |
 | Bring your gateway | First-run base URL, authentication style, and API key fields |
-| All compatible models | Live `/v1/models` discovery; no private or user-specific catalog in source |
+| All compatible models | Live `/v1/models` discovery with automatic add/remove refresh and family ordering; no private or user-specific catalog in source |
 | Reasoning effort | Model-specific controls appear only after the gateway verifies support |
-| Cowork and SSH | Current Claude surfaces plus safe setup and functional verification guidance |
-| Usage widget | Secret-free local session token/context telemetry |
+| Cowork and SSH | Current Claude surfaces plus a managed remote-loopback SSH bridge for Code sessions |
+| Usage widget | Fresh gateway account usage plus secret-free session/model-context telemetry |
 | Mobile companion | Opt-in paired PWA with resumable streaming through a private HTTPS tunnel |
 | No developer setup | Bundled Node.js runtime; no Node, npm, Git, or SDK required |
 | Claude optional | If official Claude is absent, setup obtains it from its official Windows source |
@@ -46,6 +46,8 @@ Claude Open runs the official Anthropic-signed Claude Desktop client with an iso
 5. Select **Verify Gateway**, choose a discovered model and verified effort, then select **Launch Claude Open**.
 
 Claude Desktop does not need to be installed first. If it already exists, setup leaves that installation and its profile unchanged by default. See [installation](docs/INSTALL.md) for a custom drive, Cowork prerequisites, update, and uninstall options.
+
+Setup creates one **Claude Open** Start/taskbar identity and desktop shortcut. They always start the isolation launcher; the hidden Cowork runtime retains its package identity while its window joins the same Claude Open taskbar group, independently from normal Claude.
 
 Agents can follow the repository's [Install Claude Open skill](skills/install-claude-open/SKILL.md) to inspect, install, configure, verify, diagnose, or remove the app without asking for secrets.
 

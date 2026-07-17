@@ -18,6 +18,7 @@ test('defaultConfig has no vendor-specific hard-coded values', () => {
   const c = defaultConfig();
   assert.equal(c.baseUrl, '');
   assert.equal(c.profile, 'mixed-auto');
+  assert.equal(c.modelDetailsEndpoint, '/api/models');
   assert.deepEqual(c.routes, []);
   assert.deepEqual(c.modelOverrides, {});
 });
@@ -121,6 +122,7 @@ test('validateConfig: full valid config normalizes', () => {
   });
   assert.equal(r.ok, true, r.errors.join('; '));
   assert.equal(r.config.modelsEndpoint, '/v1/models');
+  assert.equal(r.config.modelDetailsEndpoint, '/api/models');
   assert.deepEqual(r.config.routes, []);
 });
 
@@ -131,6 +133,13 @@ test('validateConfig: bad profile fails', () => {
     profile: 'grpc',
   });
   assert.equal(r.ok, false);
+});
+
+test('validateConfig: model details enrichment stays on the configured gateway', () => {
+  const base = { baseUrl: 'https://g.example.com', auth: { kind: 'none' }, profile: 'mixed-auto' };
+  assert.equal(validateConfig({ ...base, modelDetailsEndpoint: '/api/models' }).ok, true);
+  assert.equal(validateConfig({ ...base, modelDetailsEndpoint: null }).ok, true);
+  assert.equal(validateConfig({ ...base, modelDetailsEndpoint: 'https://elsewhere.example/models' }).ok, false);
 });
 
 test('validateConfig: all documented profiles are accepted', () => {

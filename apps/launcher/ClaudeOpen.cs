@@ -8,6 +8,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using System.Collections;
 using System.Web.Script.Serialization;
 using System.Threading;
 using System.Security.Cryptography;
@@ -29,6 +30,47 @@ namespace ClaudeOpenLauncher
     {
         [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern int SetCurrentProcessExplicitAppUserModelID(string appID);
+        private const string ClaudeOpenLauncherAumid = "ClaudeOpen.Launcher";
+
+        private delegate bool EnumWindowsCallback(IntPtr window, IntPtr state);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr state);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+        [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"),
+         InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IWindowPropertyStore
+        {
+            [PreserveSig] int GetCount(out uint count);
+            [PreserveSig] int GetAt(uint index, out WindowPropertyKey key);
+            [PreserveSig] int GetValue(ref WindowPropertyKey key, out WindowPropertyValue value);
+            [PreserveSig] int SetValue(ref WindowPropertyKey key, ref WindowPropertyValue value);
+            [PreserveSig] int Commit();
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WindowPropertyKey
+        {
+            public Guid FormatId;
+            public uint PropertyId;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct WindowPropertyValue
+        {
+            [FieldOffset(0)] public ushort ValueType;
+            [FieldOffset(8)] public IntPtr PointerValue;
+        }
+
+        [DllImport("shell32.dll", PreserveSig = true)]
+        private static extern int SHGetPropertyStoreForWindow(
+            IntPtr window, ref Guid interfaceId, out IWindowPropertyStore propertyStore);
+
+        [DllImport("ole32.dll")]
+        private static extern int PropVariantClear(ref WindowPropertyValue value);
         // P/Invoke for Credential Manager
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         internal struct CREDENTIAL
@@ -143,6 +185,10 @@ namespace ClaudeOpenLauncher
         private int companionPort = 0;
         private string companionPairingCode = "";
         private string companionPairingExpiresAt = "";
+        // Remote Claude Code receives the same loopback adapter URL as the local
+        // client. A reverse SSH forward makes that remote loopback resolve back
+        // to this adapter without exposing it to LAN/tailnet interfaces.
+        private readonly Dictionary<string, Process> sshBridgeProcesses = new Dictionary<string, Process>(StringComparer.OrdinalIgnoreCase);
 
         private sealed class ModelView
         {
@@ -172,13 +218,10 @@ namespace ClaudeOpenLauncher
 
         public ClaudeOpenForm()
         {
-            // Explicit AUMID for the LAUNCHER, outside Anthropic's `com.anthropic.*`
-            // namespace so Windows's taskbar/pin grouping keeps this fork visually
-            // separate from normal Claude. Matches the .lnk's System.AppUserModel.ID
-            // set by installer/Install-ClaudeOpen.ps1 and the MSIX-registered
-            // family form (ClaudeOpen_<publisherHash>!ClaudeOpen) when the sparse
-            // identity package is registered per-user.
-            SetCurrentProcessExplicitAppUserModelID("ClaudeOpen.Launcher");
+            // The shortcut must remain launcher-owned. Stamping it with the
+            // runtime package AUMID lets Windows bypass this control center and
+            // activate the signed client without the isolated profile/adapter.
+            SetCurrentProcessExplicitAppUserModelID(ClaudeOpenLauncherAumid);
             InitializePaths();
             InitializeComponent();
             LoadConfig();
@@ -1166,6 +1209,7 @@ namespace ClaudeOpenLauncher
                 config["baseUrl"] = url;
                 if (!config.ContainsKey("profile")) config["profile"] = "mixed-auto";
                 if (!config.ContainsKey("modelsEndpoint")) config["modelsEndpoint"] = "/v1/models";
+                if (!config.ContainsKey("modelDetailsEndpoint")) config["modelDetailsEndpoint"] = "/api/models";
                 
                 var auth = new Dictionary<string, object>();
                 auth["kind"] = kind;
@@ -1825,7 +1869,7 @@ namespace ClaudeOpenLauncher
                 {
                     string value = p.StandardOutput.ReadToEnd().Trim();
                     p.WaitForExit();
-                    return p.ExitCode == 0 ? value : null;
+                    return p.ExitCode == 0 && IsSafeFamilyName(value) ? value : null;
                 }
             }
             catch { return null; }
@@ -2072,6 +2116,11 @@ namespace ClaudeOpenLauncher
         {
             bool statusChanged = false;
 
+            AlignClientWindowsWithLauncherIdentity();
+
+            if (activePort > 0 && adapterProcess != null && !adapterProcess.HasExited)
+                RefreshSshBridges();
+
             if (adapterProcess != null && !adapterProcess.HasExited &&
                 (DateTime.UtcNow - lastDashboardRefresh).TotalSeconds >= 10)
                 RefreshLiveDashboard(false);
@@ -2123,6 +2172,7 @@ namespace ClaudeOpenLauncher
         private void StopProcesses()
         {
             stopping = true;
+            StopSshBridges();
             if (clientProcess != null)
             {
                 try {
@@ -2179,6 +2229,179 @@ namespace ClaudeOpenLauncher
             if (probeEffortButton != null) probeEffortButton.Enabled = false;
             if (applyEffortButton != null) applyEffortButton.Enabled = false;
             UpdateStatusDisplay();
+        }
+
+        private string FindSshExecutable()
+        {
+            string bundled = Path.Combine(Environment.SystemDirectory, "OpenSSH", "ssh.exe");
+            if (File.Exists(bundled)) return bundled;
+            try
+            {
+                var psi = new ProcessStartInfo("where.exe", "ssh.exe")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (Process process = Process.Start(psi))
+                {
+                    string line = process.StandardOutput.ReadLine();
+                    process.WaitForExit(3000);
+                    if (!string.IsNullOrEmpty(line) && File.Exists(line.Trim())) return line.Trim();
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private HashSet<string> GetApprovedSshTargets()
+        {
+            var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var safeTarget = new Regex(@"^[A-Za-z0-9_.:@%+\-\[\]]+$", RegexOptions.CultureInvariant);
+            try
+            {
+                string stateFile = Path.Combine(profilePath, "ssh_configs.json");
+                if (File.Exists(stateFile))
+                {
+                    var state = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(stateFile));
+                    object trusted;
+                    if (state != null && state.TryGetValue("trustedHosts", out trusted) && trusted is IEnumerable)
+                    {
+                        foreach (object value in (IEnumerable)trusted)
+                        {
+                            string target = value as string;
+                            if (!string.IsNullOrEmpty(target) && safeTarget.IsMatch(target)) targets.Add(target);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // A trusted connection may be created after launch. Read only a small
+            // tail of the isolated client log so the bridge appears automatically;
+            // do not persist or display the host value.
+            try
+            {
+                string mainLog = Path.Combine(profilePath, "logs", "main.log");
+                if (File.Exists(mainLog))
+                {
+                    string tail;
+                    using (FileStream stream = new FileStream(mainLog, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    {
+                        stream.Seek(-Math.Min(stream.Length, 512 * 1024), SeekOrigin.End);
+                        using (var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, false)) tail = reader.ReadToEnd();
+                    }
+                    foreach (Match match in Regex.Matches(tail, @"\[SSH\] Using remote spawn function.* on ([^ ]+) \(cli:"))
+                    {
+                        string target = match.Groups[1].Value;
+                        if (safeTarget.IsMatch(target)) targets.Add(target);
+                    }
+                }
+            }
+            catch { }
+            return targets;
+        }
+
+        private void RefreshSshBridges()
+        {
+            if (activePort <= 0) return;
+            string ssh = FindSshExecutable();
+            if (string.IsNullOrEmpty(ssh)) return;
+
+            foreach (string target in GetApprovedSshTargets())
+            {
+                Process existing;
+                if (sshBridgeProcesses.TryGetValue(target, out existing))
+                {
+                    try { if (!existing.HasExited) continue; } catch { }
+                    sshBridgeProcesses.Remove(target);
+                }
+                try
+                {
+                    string forward = "127.0.0.1:" + activePort + ":127.0.0.1:" + activePort;
+                    var psi = new ProcessStartInfo(
+                        ssh,
+                        "-N -T -o BatchMode=yes -o ExitOnForwardFailure=yes " +
+                        "-o ServerAliveInterval=15 -o ServerAliveCountMax=3 -R " + forward + " " + target)
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden
+                    };
+                    Process bridge = Process.Start(psi);
+                    if (bridge != null)
+                    {
+                        sshBridgeProcesses[target] = bridge;
+                        AppendLog("Secure SSH loopback bridge started (PID " + bridge.Id + ").");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("SSH loopback bridge unavailable: " + ex.Message);
+                }
+            }
+        }
+
+        private void StopSshBridges()
+        {
+            foreach (Process bridge in sshBridgeProcesses.Values)
+            {
+                try { if (bridge != null && !bridge.HasExited) bridge.Kill(); } catch { }
+                try { if (bridge != null) bridge.Dispose(); } catch { }
+            }
+            sshBridgeProcesses.Clear();
+        }
+
+        private void AlignClientWindowsWithLauncherIdentity()
+        {
+            string expectedClient = Path.Combine(FindInstallRoot(), "client", "claude.exe");
+            var processIds = new HashSet<uint>();
+            foreach (Process process in Process.GetProcessesByName("claude"))
+            {
+                try
+                {
+                    if (string.Equals(process.MainModule.FileName, expectedClient, StringComparison.OrdinalIgnoreCase))
+                        processIds.Add((uint)process.Id);
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+            if (processIds.Count == 0) return;
+
+            EnumWindows(delegate(IntPtr window, IntPtr state)
+            {
+                uint processId;
+                GetWindowThreadProcessId(window, out processId);
+                if (processIds.Contains(processId))
+                    SetWindowAppUserModelId(window, ClaudeOpenLauncherAumid);
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        private static bool SetWindowAppUserModelId(IntPtr window, string appUserModelId)
+        {
+            IWindowPropertyStore store = null;
+            var value = new WindowPropertyValue();
+            try
+            {
+                Guid interfaceId = typeof(IWindowPropertyStore).GUID;
+                if (SHGetPropertyStoreForWindow(window, ref interfaceId, out store) != 0 || store == null)
+                    return false;
+                var key = new WindowPropertyKey {
+                    FormatId = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
+                    PropertyId = 5
+                };
+                value.ValueType = 31; // VT_LPWSTR
+                value.PointerValue = Marshal.StringToCoTaskMemUni(appUserModelId);
+                return store.SetValue(ref key, ref value) == 0 && store.Commit() == 0;
+            }
+            catch { return false; }
+            finally
+            {
+                if (value.PointerValue != IntPtr.Zero) PropVariantClear(ref value);
+                if (store != null) Marshal.ReleaseComObject(store);
+            }
         }
 
         // FIX #5: terminate the real Claude client process(es) that belong to OUR
