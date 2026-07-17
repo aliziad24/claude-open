@@ -47,6 +47,8 @@ Claude Open runs the official Anthropic-signed Claude Desktop client with an iso
 
 Claude Desktop does not need to be installed first. If it already exists, setup leaves that installation and its profile unchanged by default. See [installation](docs/INSTALL.md) for a custom drive, Cowork prerequisites, update, and uninstall options.
 
+Setup creates one **Claude Open** Start/taskbar identity. Its launcher and hidden Cowork runtime group under that single icon, independently from normal Claude.
+
 Agents can follow the repository's [Install Claude Open skill](skills/install-claude-open/SKILL.md) to inspect, install, configure, verify, diagnose, or remove the app without asking for secrets.
 
 ### Optional mobile companion

@@ -72,20 +72,21 @@ test('identity updates replace only the Claude Open-owned sparse package', async
   assert.doesNotMatch(source, /Anthropic\.Claude/);
 });
 
-// FIX #3: launcher AUMID must be outside Anthropic's `com.anthropic.*` namespace
-// so Windows's taskbar/pin grouping keeps the fork visually separate from normal
-// Claude. Prior code used `com.anthropic.claudeopen` -- inside the vendor
-// namespace, which caused the pinned "Claude Open" to visually merge with the
-// vendor app's taskbar identity. The AUMID must be a non-vendor id.
-test('launcher AUMID lives outside the com.anthropic.* namespace', async () => {
+test('launcher and shortcut adopt the hidden Claude Open runtime AUMID', async () => {
   const source = await readFile(path.join(root, 'apps', 'launcher', 'ClaudeOpen.cs'), 'utf8');
-  const call = 'SetCurrentProcessExplicitAppUserModelID';
-  const m = source.match(new RegExp(call + '\\s*\\(\\s*"([^"]{1,64})"'));
-  assert.ok(m, call + ' call not found in ClaudeOpen.cs');
-  const aumid = m[1];
-  assert.doesNotMatch(aumid, /^com\.anthropic\./i, `AUMID '${aumid}' is inside Anthropic's namespace and will collide with normal Claude`);
-  // Must still be a valid AUMID-shaped id (dotted or MSIX-family form).
-  assert.match(aumid, /^[A-Za-z][A-Za-z0-9._-]*(?:!.+)?$/, 'AUMID must be a valid identifier');
+  const installer = await readFile(installPath, 'utf8');
+  const setAumidCall = ['SetCurrent', 'ProcessExplicit', 'AppUserModelID'].join('');
+  assert.match(source, /packageFamily \+ "!Runtime"/);
+  assert.match(source, new RegExp(`${setAumidCall}\\(unifiedAumid\\)`));
+  assert.match(installer, /\$registered\.PackageFamilyName \+ '!Runtime'/);
+  assert.doesNotMatch(source, /com\.anthropic\./i);
+});
+
+test('sparse package applications stay out of Start so only the owned shortcut is visible', async () => {
+  const manifest = await readFile(path.join(root, 'msix', 'AppxManifest.xml'), 'utf8');
+  const entries = [...manifest.matchAll(/<uap:VisualElements\s+([^>]+)>/g)].map((match) => match[1]);
+  assert.equal(entries.length, 2, 'expected launcher and runtime visual entries');
+  for (const entry of entries) assert.match(entry, /AppListEntry="none"/);
 });
 
 // FIX #3: the Start-menu shortcut must set System.AppUserModel.ID to the SAME

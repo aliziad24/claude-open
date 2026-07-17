@@ -1,6 +1,6 @@
 # User guide
 
-Claude Open has its own Start-menu icon, profile, credential, and application identity. It can be used at the same time as normal Claude. Always launch it through **Claude Open**; launching the copied client executable directly bypasses isolation setup.
+Claude Open has one Start-menu/taskbar icon plus its own profile, credential, and application identity. Its control center and hidden Cowork runtime share that one Windows identity. It can be used at the same time as normal Claude, which keeps its separate icon. Always launch through **Claude Open**; launching the copied client executable directly bypasses isolation setup.
 
 ## Before you start
 

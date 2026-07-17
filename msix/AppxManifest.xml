@@ -71,6 +71,7 @@
         uap10:TrustLevel="mediumIL"
         uap10:RuntimeBehavior="win32App">
       <uap:VisualElements
+          AppListEntry="none"
           DisplayName="Claude Open"
           Description="Launch the official signed Claude Desktop in an isolated gateway profile."
           BackgroundColor="transparent"

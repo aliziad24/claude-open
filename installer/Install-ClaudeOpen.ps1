@@ -426,18 +426,17 @@ if (-not $NoShortcut) {
   $shortcut.IconLocation = (Join-Path $target 'ClaudeOpen.exe') + ',0'
   $shortcut.Save()
 
-  # Stamp the shortcut's System.AppUserModel.ID (PKEY_AppUserModel_ID) so a pinned
-  # tile groups under the LAUNCHER's own identity ("ClaudeOpen.Launcher") instead
-  # of Windows's automatic exe-path grouping (which previously let the pin merge
-  # with normal Claude). This MUST match SetCurrentProcessExplicitAppUserModelID
-  # in apps/launcher/ClaudeOpen.cs. WScript.Shell cannot set AUMID, so use the
-  # Windows Property System via a tiny inline helper.
-  $aumid = 'ClaudeOpen.Launcher'
+  # Stamp the shortcut with the hidden packaged runtime's AUMID. The launcher
+  # resolves and adopts this same value at startup, giving the user one Claude
+  # Open Start/taskbar identity even though a separate signed runtime process is
+  # required for Cowork. Normal Claude has a different package family/AUMID.
+  # WScript.Shell cannot set AUMID, so use the Windows Property System helper.
+  $aumid = $registered.PackageFamilyName + '!Runtime'
   try {
     Set-ShortcutAppUserModelId -LnkPath $lnkPath -AppUserModelId $aumid
-    Write-Host "Stamped shortcut AppUserModel.ID = $aumid (separate taskbar/pin identity)."
+    Write-Host "Stamped shortcut AppUserModel.ID = $aumid (unified Claude Open identity)."
   } catch {
-    Write-Warning "Could not stamp the shortcut AppUserModel.ID ($($_.Exception.Message)); the pin still launches the fork but may share taskbar grouping with normal Claude."
+    Write-Warning "Could not stamp the shortcut AppUserModel.ID ($($_.Exception.Message)); the launcher still works but Windows may show a second Claude Open taskbar button."
   }
 }
 

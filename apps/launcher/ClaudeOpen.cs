@@ -177,13 +177,15 @@ namespace ClaudeOpenLauncher
 
         public ClaudeOpenForm()
         {
-            // Explicit AUMID for the LAUNCHER, outside Anthropic's `com.anthropic.*`
-            // namespace so Windows's taskbar/pin grouping keeps this fork visually
-            // separate from normal Claude. Matches the .lnk's System.AppUserModel.ID
-            // set by installer/Install-ClaudeOpen.ps1 and the MSIX-registered
-            // family form (ClaudeOpen_<publisherHash>!ClaudeOpen) when the sparse
-            // identity package is registered per-user.
-            SetCurrentProcessExplicitAppUserModelID("ClaudeOpen.Launcher");
+            // Use the packaged runtime's AUMID for the control center too. The
+            // Start shortcut is stamped with this same value by the installer,
+            // so Windows groups the launcher and signed runtime under one Claude
+            // Open pin/taskbar button while normal Claude keeps its own AUMID.
+            string packageFamily = ResolveClaudeOpenPackageFamily();
+            string unifiedAumid = string.IsNullOrEmpty(packageFamily)
+                ? "ClaudeOpen.Launcher"
+                : packageFamily + "!Runtime";
+            SetCurrentProcessExplicitAppUserModelID(unifiedAumid);
             InitializePaths();
             InitializeComponent();
             LoadConfig();
@@ -1830,7 +1832,7 @@ namespace ClaudeOpenLauncher
                 {
                     string value = p.StandardOutput.ReadToEnd().Trim();
                     p.WaitForExit();
-                    return p.ExitCode == 0 ? value : null;
+                    return p.ExitCode == 0 && IsSafeFamilyName(value) ? value : null;
                 }
             }
             catch { return null; }
