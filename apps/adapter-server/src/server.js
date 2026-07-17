@@ -37,7 +37,7 @@ import {
   mappedUsageAdapter,
 } from '@claude-open/gateway-adapter';
 import { ConformanceStore } from '@claude-open/gateway-adapter';
-import { AliasMap, normalizeCatalog, CatalogCache } from '@claude-open/model-catalog';
+import { AliasMap, normalizeCatalog, mergeModelDetails, CatalogCache } from '@claude-open/model-catalog';
 import { loadRegistry, resolveCapabilities, isChatUsable } from '@claude-open/model-registry';
 
 const REGISTRY = loadRegistry();
@@ -323,7 +323,22 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         return cache.serve();
       }
       const body = await resp.json();
-      const list = Array.isArray(body) ? body : body.data || [];
+      let list = Array.isArray(body) ? body : body.data || [];
+      const detailsEndpoint = config.modelDetailsEndpoint;
+      if (detailsEndpoint) {
+        try {
+          const target = new URL(detailsEndpoint, `${base}/`);
+          if (target.origin !== new URL(base).origin) throw new Error('model details endpoint must use the configured gateway origin');
+          const detailsResponse = await fetchImpl(target, {
+            method: 'GET',
+            headers: upstreamHeaders(),
+            signal: timeoutSignal(config.modelDetailsTimeoutMs ?? 1500),
+          });
+          if (detailsResponse.ok) list = mergeModelDetails(list, await detailsResponse.json());
+        } catch (error) {
+          log({ evt: 'warn', msg: `optional model details unavailable: ${redact(error.message)}` });
+        }
+      }
       const normalized = normalizeCatalog(list, aliasMap, {
         resolveCaps,
         modelOverrides: config.modelOverrides || {},

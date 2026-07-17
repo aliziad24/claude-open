@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AliasMap } from '../src/alias.js';
-import { normalizeModel, normalizeCatalog, resolveContext } from '../src/normalize.js';
+import { normalizeModel, normalizeCatalog, resolveContext, mergeModelDetails } from '../src/normalize.js';
 import { loadRegistry, resolveCapabilities } from '@claude-open/model-registry';
 
 const salt = 'test-salt';
@@ -81,15 +81,26 @@ test('normalizeModel: no context metadata -> null, not a global default', () => 
   assert.equal(m.context.source, 'unknown');
 });
 
-test('resolveContext accepts common gateway max-input and nested limit shapes', () => {
+test('resolveContext accepts nested limit shapes without confusing max input for context', () => {
   assert.deepEqual(resolveContext({ id: 'a', max_input_tokens: 200000 }), {
-    window: 200000,
-    source: 'gateway',
+    window: null,
+    source: 'unknown',
   });
   assert.deepEqual(resolveContext({ id: 'b', limits: { context_window: 1000000 } }), {
     window: 1000000,
     source: 'gateway',
   });
+});
+
+test('mergeModelDetails prefers the richer context window while keeping max input separate', () => {
+  const merged = mergeModelDetails(
+    [{ id: 'claude-opus-4-8', context_length: 200000, max_input_tokens: 200000 }],
+    [{ provider_model: 'claude-opus-4-8', context_window: 1000000, max_input_tokens: 200000 }],
+  );
+  assert.equal(merged[0].context_length, 1000000);
+  assert.equal(merged[0].context_window, 1000000);
+  assert.equal(merged[0].max_input_tokens, 200000);
+  assert.equal(merged[0].claude_open_context_source, 'gateway:model-details');
 });
 
 test('normalizeCatalog: classifies a mixed catalog and skips malformed records', () => {

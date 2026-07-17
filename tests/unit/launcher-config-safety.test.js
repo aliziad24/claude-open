@@ -22,7 +22,7 @@ test('custom authentication header must be syntactically valid and non-reserved'
 
 test('saving basic fields preserves advanced gateway configuration', () => {
   assert.match(source, /new Dictionary<string, object>\(currentConfig\)/);
-  for (const key of ['profile', 'modelsEndpoint', 'usage', 'routes', 'modelOverrides']) {
+  for (const key of ['profile', 'modelsEndpoint', 'modelDetailsEndpoint', 'usage', 'routes', 'modelOverrides']) {
     assert.match(source, new RegExp(`!config\\.ContainsKey\\("${key}"\\)`));
   }
 });

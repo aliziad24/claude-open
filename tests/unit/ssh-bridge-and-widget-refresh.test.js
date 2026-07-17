@@ -29,7 +29,6 @@ test('usage context matches alias ids, display names, real ids, and standard gat
   assert.match(widget, /model\?\.display_name/);
   assert.match(widget, /model\?\.claude_open\?\.realId/);
   assert.match(widget, /model\?\.claude_open\?\.contextWindow/);
-  assert.match(widget, /model\?\.max_input_tokens/);
   assert.match(widget, /ctx unavailable/);
   assert.doesNotMatch(widget, /['"`]\? ctx['"`]/);
 });

@@ -33,7 +33,9 @@
   const formatContext = (value) => {
     const number = Number(value || 0);
     if (!number) return '';
+    if (number >= 1048576 && number % 1048576 === 0) return `${number / 1048576}M`;
     if (number >= 1e6) return `${Number((number / 1e6).toFixed(1))}M`;
+    if (number >= 1024 && number % 1024 === 0) return `${number / 1024}K`;
     if (number >= 1e3) return `${Math.round(number / 1e3)}K`;
     return String(number);
   };
@@ -49,7 +51,6 @@
     model?.context_length,
     model?.context_window,
     model?.max_context_tokens,
-    model?.max_input_tokens,
     model?.context?.window,
     model?.claude_open?.contextWindow,
   );

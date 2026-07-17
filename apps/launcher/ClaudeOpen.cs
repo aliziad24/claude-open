@@ -1209,6 +1209,7 @@ namespace ClaudeOpenLauncher
                 config["baseUrl"] = url;
                 if (!config.ContainsKey("profile")) config["profile"] = "mixed-auto";
                 if (!config.ContainsKey("modelsEndpoint")) config["modelsEndpoint"] = "/v1/models";
+                if (!config.ContainsKey("modelDetailsEndpoint")) config["modelDetailsEndpoint"] = "/api/models";
                 
                 var auth = new Dictionary<string, object>();
                 auth["kind"] = kind;

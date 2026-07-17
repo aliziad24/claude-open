@@ -35,6 +35,7 @@ export function defaultConfig() {
     auth: { kind: 'bearer', credentialRef: null, headerName: null },
     profile: 'mixed-auto',
     modelsEndpoint: '/v1/models',
+    modelDetailsEndpoint: '/api/models',
     usage: { adapter: 'none' },
     routes: [],
     modelOverrides: {},
@@ -173,6 +174,11 @@ export function validateConfig(raw) {
 
   if (!COMPATIBILITY_PROFILES.includes(cfg.profile)) {
     errors.push(`profile must be one of ${COMPATIBILITY_PROFILES.join(', ')}, got ${cfg.profile}`);
+  }
+
+  if (cfg.modelDetailsEndpoint != null &&
+      (typeof cfg.modelDetailsEndpoint !== 'string' || !cfg.modelDetailsEndpoint.startsWith('/'))) {
+    errors.push('modelDetailsEndpoint must be a relative same-gateway path or null');
   }
 
   if (cfg.customHeaders !== undefined) {

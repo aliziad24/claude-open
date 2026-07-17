@@ -61,10 +61,6 @@ export function resolveContext(rec, override) {
     'context_window',
     'max_context_tokens',
     'input_token_limit',
-    // A number of OpenAI-compatible gateways expose only max_input_tokens.
-    // It is still gateway-provided context capacity, not an invented default.
-    'max_input_tokens',
-    'max_prompt_tokens',
     'context',
   ]);
   if (w != null) return { window: w, source: 'gateway' };
@@ -77,6 +73,42 @@ export function resolveContext(rec, override) {
   ].find((value) => typeof value === 'number' && Number.isFinite(value));
   if (nested != null) return { window: nested, source: 'gateway' };
   return { window: null, source: 'unknown' };
+}
+
+/**
+ * Merge an optional richer, same-gateway model catalog into the standard
+ * /v1/models records. Some gateways intentionally expose max-input-compatible
+ * values on /v1/models but publish the real context window on /api/models.
+ */
+export function mergeModelDetails(primary, detailsPayload) {
+  const details = Array.isArray(detailsPayload)
+    ? detailsPayload
+    : (detailsPayload?.data || detailsPayload?.models || []);
+  const byIdentity = new Map();
+  for (const detail of details) {
+    for (const identity of [detail?.provider_model, detail?.api_id, detail?.id]) {
+      if (identity) byIdentity.set(String(identity).toLowerCase(), detail);
+    }
+  }
+  return (primary || []).map((record) => {
+    const identities = [record?.id, record?.display_name, record?.name]
+      .filter(Boolean).map((value) => String(value).toLowerCase());
+    const detail = identities.map((identity) => byIdentity.get(identity)).find(Boolean);
+    if (!detail) return record;
+    const context = pickNumber(detail, ['context_window', 'context_length', 'max_context_tokens']);
+    const maxInput = pickNumber(detail, ['max_input_tokens', 'max_prompt_tokens']);
+    const maxOutput = pickNumber(detail, ['max_output_tokens', 'max_completion_tokens']);
+    return {
+      ...record,
+      ...(context == null ? {} : {
+        context_window: context,
+        context_length: context,
+        claude_open_context_source: 'gateway:model-details',
+      }),
+      ...(maxInput == null ? {} : { max_input_tokens: maxInput }),
+      ...(maxOutput == null ? {} : { max_output_tokens: maxOutput }),
+    };
+  });
 }
 
 /**
