@@ -18,7 +18,18 @@ test('SSH Code uses a managed remote-loopback reverse forward to the live adapte
 test('usage Refresh waits for a newly generated adapter snapshot', () => {
   assert.match(widget, /waitForNewerThan/);
   assert.match(widget, /gateway\?\.fetchedAt/);
+  assert.match(widget, /live gateway snapshot did not advance/);
+  assert.match(widget, /Stale gateway snapshot/);
   assert.match(widget, /Refreshing…/);
   assert.match(widget, /setInterval\(refresh, POLL_MS\)/);
-  assert.match(widget, /const POLL_MS = 10000/);
+  assert.match(widget, /const POLL_MS = 5000/);
+});
+
+test('usage context matches alias ids, display names, real ids, and standard gateway limit fields', () => {
+  assert.match(widget, /model\?\.display_name/);
+  assert.match(widget, /model\?\.claude_open\?\.realId/);
+  assert.match(widget, /model\?\.claude_open\?\.contextWindow/);
+  assert.match(widget, /model\?\.max_input_tokens/);
+  assert.match(widget, /ctx unavailable/);
+  assert.doesNotMatch(widget, /['"`]\? ctx['"`]/);
 });

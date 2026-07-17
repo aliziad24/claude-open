@@ -20,4 +20,6 @@ If your gateway publishes account plan or usage JSON, close Claude Open and add 
 }
 ```
 
-Endpoints must be relative to the configured gateway origin. Claude Open calls them through the same base URL and the same active Credential Manager secret used for models and inference. The API key is never copied into the widget snapshot. Data refreshes every 10 seconds, and the widget's **Refresh** button waits for a newer snapshot; if the gateway does not offer these endpoints, omit this block and the widget honestly shows session telemetry only.
+Endpoints must be relative to the configured gateway origin. Claude Open calls them through the same base URL and the same active Credential Manager secret used for models and inference. The API key is never copied into the widget snapshot. Data refreshes every 5 seconds, and the widget's **Refresh** button waits for a newer snapshot, reports success with a fresh timestamp, and reports a stalled refresh instead of silently repainting old numbers. If the gateway does not offer these endpoints, omit this block and the widget honestly shows session telemetry only.
+
+Selected-model context comes from gateway catalog metadata or an explicit per-model override. Claude Open accepts common fields such as `context_length`, `context_window`, `max_context_tokens`, `max_input_tokens`, and nested context/limit objects. It never invents a context size when the gateway and override provide none; that case is labeled **Not reported**.

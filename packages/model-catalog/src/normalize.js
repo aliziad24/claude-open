@@ -56,8 +56,26 @@ export function resolveContext(rec, override) {
   if (override && typeof override.contextWindow === 'number') {
     return { window: override.contextWindow, source: 'override' };
   }
-  const w = pickNumber(rec, ['context_length', 'context_window', 'max_context_tokens', 'context']);
+  const w = pickNumber(rec, [
+    'context_length',
+    'context_window',
+    'max_context_tokens',
+    'input_token_limit',
+    // A number of OpenAI-compatible gateways expose only max_input_tokens.
+    // It is still gateway-provided context capacity, not an invented default.
+    'max_input_tokens',
+    'max_prompt_tokens',
+    'context',
+  ]);
   if (w != null) return { window: w, source: 'gateway' };
+  const nested = [
+    rec.context?.window,
+    rec.context?.length,
+    rec.limits?.context_window,
+    rec.limits?.context_length,
+    rec.token_limits?.context_window,
+  ].find((value) => typeof value === 'number' && Number.isFinite(value));
+  if (nested != null) return { window: nested, source: 'gateway' };
   return { window: null, source: 'unknown' };
 }
 

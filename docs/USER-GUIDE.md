@@ -25,11 +25,11 @@ The model selector is filled from the gateway's live `/v1/models` response. The 
 
 Reasoning effort is deliberately conservative. A selector is available only when the adapter knows the exact wire field and the current gateway has behaviorally verified it. **Verify & apply** performs real gateway requests and may incur normal usage charges.
 
-The usage pill refreshes from the local adapter every 10 seconds. It always shows observed session tokens. If your gateway exposes account plan/usage endpoints, configure the optional mapped usage block described in [Usage and context](USAGE-CONTEXT.md); Claude Open then reads those endpoints with the same saved base URL and Credential Manager key, without placing the key in renderer files.
+The usage pill refreshes from the local adapter every 5 seconds. It always shows observed session tokens. If your gateway exposes account plan/usage endpoints, configure the optional mapped usage block described in [Usage and context](USAGE-CONTEXT.md); Claude Open then reads those endpoints with the same saved base URL and Credential Manager key, without placing the key in renderer files.
 
 ## Usage widget
 
-The floating widget inside Claude Open shows requests and tokens observed by the current local adapter session, plus available-model and context information. It reads secret-free files generated locally by the adapter. Its **Refresh** button waits for a newer gateway snapshot instead of merely repainting cached data.
+The floating widget inside Claude Open shows requests and tokens observed by the current local adapter session, plus available-model and selected-model context information. It matches both the client-safe alias and the gateway display/real model name, so aliased non-Claude models retain their context metadata. It reads secret-free files generated locally by the adapter. Its **Refresh** button waits for a newer gateway snapshot instead of merely repainting cached data, confirms the refresh time, and visibly labels a stalled snapshot as stale or failed.
 
 This is not provider billing or subscription quota. It resets when the adapter restarts and does not count requests made outside Claude Open.
 

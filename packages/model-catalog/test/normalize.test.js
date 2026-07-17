@@ -81,6 +81,17 @@ test('normalizeModel: no context metadata -> null, not a global default', () => 
   assert.equal(m.context.source, 'unknown');
 });
 
+test('resolveContext accepts common gateway max-input and nested limit shapes', () => {
+  assert.deepEqual(resolveContext({ id: 'a', max_input_tokens: 200000 }), {
+    window: 200000,
+    source: 'gateway',
+  });
+  assert.deepEqual(resolveContext({ id: 'b', limits: { context_window: 1000000 } }), {
+    window: 1000000,
+    source: 'gateway',
+  });
+});
+
 test('normalizeCatalog: classifies a mixed catalog and skips malformed records', () => {
   const aliasMap = new AliasMap({ salt });
   const cat = normalizeCatalog(

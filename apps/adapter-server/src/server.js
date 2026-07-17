@@ -504,6 +504,12 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
             display_name: m.displayName,
             type: 'model',
             created_at: undefined,
+            // Preserve standard gateway limit fields in the renderer snapshot.
+            // The alias id and display name can differ, so the widget also gets
+            // the canonical real id inside claude_open below.
+            context_length: m.contextWindow,
+            max_input_tokens: m.maxInputTokens,
+            max_output_tokens: m.maxOutputTokens,
             // The patched client consumes this native-looking field. Advertise
             // only behaviorally verified categorical values; unknown/schema-only
             // controls remain hidden instead of becoming decorative UI.

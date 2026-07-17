@@ -6,10 +6,13 @@
 
   const STYLE_ID = 'claude-open-usage-style';
   const ROOT_ID = 'claude-open-usage-widget';
-  const POLL_MS = 10000;
+  const POLL_MS = 5000;
+  const STALE_MS = 15000;
   let open = false;
   let lastUsage = null;
   let lastModels = [];
+  let selectedContext = null;
+  let lastRefreshResult = null;
 
   const format = (value) => {
     const number = Number(value || 0);
@@ -26,6 +29,70 @@
     }
     return null;
   };
+
+  const formatContext = (value) => {
+    const number = Number(value || 0);
+    if (!number) return '';
+    if (number >= 1e6) return `${Number((number / 1e6).toFixed(1))}M`;
+    if (number >= 1e3) return `${Math.round(number / 1e3)}K`;
+    return String(number);
+  };
+
+  const modelIdentities = (model) => [
+    model?.id,
+    model?.display_name,
+    model?.realId,
+    model?.claude_open?.realId,
+  ].filter(Boolean).map((value) => String(value).trim());
+
+  const contextWindow = (model) => firstNumber(
+    model?.context_length,
+    model?.context_window,
+    model?.max_context_tokens,
+    model?.max_input_tokens,
+    model?.context?.window,
+    model?.claude_open?.contextWindow,
+  );
+
+  function selectedModelLabel() {
+    const buttons = Array.from(document.querySelectorAll('button'))
+      .filter((button) => !button.closest(`#${ROOT_ID}`));
+    for (const button of buttons) {
+      const aria = button.getAttribute('aria-label') || '';
+      if (/^model[:\s]/i.test(aria)) {
+        const label = aria.replace(/^model[:\s]+/i, '').replace(/\s+Extra\s*$/i, '').trim();
+        if (label) return label;
+      }
+    }
+    const identities = new Set(lastModels.flatMap(modelIdentities).map((value) => value.toLowerCase()));
+    for (const button of buttons) {
+      const label = (button.textContent || '').trim();
+      if (label && identities.has(label.toLowerCase())) return label;
+    }
+    return null;
+  }
+
+  function readSelectedContext() {
+    const label = selectedModelLabel();
+    if (!label) return null;
+    const normalized = label.toLowerCase();
+    let model = lastModels.find((candidate) =>
+      modelIdentities(candidate).some((identity) => identity.toLowerCase() === normalized));
+    if (!model) {
+      model = lastModels.find((candidate) =>
+        modelIdentities(candidate).some((identity) => {
+          const value = identity.toLowerCase();
+          return value.length >= 12 && (value.startsWith(normalized) || normalized.startsWith(value));
+        }));
+    }
+    if (!model) return { label, model: null, window: null, source: 'not-in-catalog' };
+    return {
+      label: model.display_name || model.claude_open?.realId || model.id || label,
+      model,
+      window: contextWindow(model),
+      source: model.claude_open?.contextSource || (contextWindow(model) != null ? 'gateway' : 'not-reported'),
+    };
+  }
 
   function gatewayAccountSnapshot() {
     const gateway = lastUsage?.gateway;
@@ -100,6 +167,7 @@
 
   function render() {
     addStyle();
+    selectedContext = readSelectedContext();
     let root = document.getElementById(ROOT_ID);
     if (!root) {
       root = element('div');
@@ -110,9 +178,17 @@
 
     const totals = lastUsage?.totals || {};
     const account = gatewayAccountSnapshot();
-    const pillText = account.percent != null
+    const fetchedAtMs = typeof account.fetchedAt === 'number'
+      ? account.fetchedAt
+      : Date.parse(account.fetchedAt || '');
+    const gatewayAge = Number.isFinite(fetchedAtMs) ? Date.now() - fetchedAtMs : Infinity;
+    const stale = account.available && gatewayAge > STALE_MS;
+    let pillText = account.percent != null
       ? `Usage ${Math.round(account.percent)}%`
       : `Usage ${format(totals.totalTokens)} tokens`;
+    if (stale) pillText += ' - stale';
+    if (selectedContext?.window) pillText += ` - ${formatContext(selectedContext.window)} ctx`;
+    else if (selectedContext?.model) pillText += ' - ctx unavailable';
     const pill = element('button', 'co-usage-pill', pillText);
     pill.type = 'button';
     pill.title = 'Claude Open session usage';
@@ -140,6 +216,13 @@
     head.appendChild(actions);
     panel.appendChild(head);
 
+    if (lastRefreshResult) {
+      const message = lastRefreshResult.ok
+        ? `Gateway refreshed at ${new Date(lastRefreshResult.at).toLocaleTimeString()}`
+        : 'Refresh failed: the live gateway snapshot did not advance.';
+      panel.appendChild(element('div', lastRefreshResult.ok ? 'co-usage-note' : 'co-usage-error', message));
+    }
+
     if (!lastUsage) {
       panel.appendChild(element('div', 'co-usage-error', 'Waiting for the local adapter…'));
       root.appendChild(panel);
@@ -154,9 +237,19 @@
       );
       if (account.percent != null) accountGrid.appendChild(card('Monthly usage', `${account.percent.toFixed(1)}%`));
       panel.appendChild(accountGrid);
-      const freshness = account.fetchedAt ? new Date(account.fetchedAt).toLocaleTimeString() : 'just now';
-      panel.appendChild(element('div', 'co-usage-note', `Fresh gateway account data · updated ${freshness}`));
+      const freshness = account.fetchedAt ? new Date(account.fetchedAt).toLocaleTimeString() : 'unknown';
+      panel.appendChild(element('div', stale ? 'co-usage-error' : 'co-usage-note',
+        `${stale ? 'Stale gateway snapshot' : 'Fresh gateway account data'} - updated ${freshness}`));
       panel.appendChild(element('div', 'co-usage-title', 'This Claude Open session'));
+    }
+
+    if (selectedContext) {
+      const selectedGrid = element('div', 'co-usage-grid');
+      selectedGrid.append(
+        card('Selected model', selectedContext.label),
+        card('Model context', selectedContext.window ? `${formatContext(selectedContext.window)} tokens` : 'Not reported'),
+      );
+      panel.appendChild(selectedGrid);
     }
 
     const grid = element('div', 'co-usage-grid');
@@ -231,18 +324,36 @@
 
   async function refresh({ waitForNewerThan = 0 } = {}) {
     const deadline = Date.now() + 12000;
+    let newer = !waitForNewerThan;
     do {
       await readSnapshots();
-      if (!waitForNewerThan || Number(lastUsage?.gateway?.fetchedAt || 0) > Number(waitForNewerThan)) break;
+      if (!waitForNewerThan || Number(lastUsage?.gateway?.fetchedAt || 0) > Number(waitForNewerThan)) {
+        newer = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 750));
     } while (Date.now() < deadline);
+    if (waitForNewerThan) lastRefreshResult = { ok: newer, at: Date.now() };
     render();
+    return newer;
   }
 
   const start = () => {
     render();
     refresh();
     setInterval(refresh, POLL_MS);
+    let scheduled = null;
+    const observer = new MutationObserver(() => {
+      if (scheduled) return;
+      scheduled = setTimeout(() => {
+        scheduled = null;
+        const next = readSelectedContext();
+        const before = `${selectedContext?.label || ''}:${selectedContext?.window || ''}`;
+        const after = `${next?.label || ''}:${next?.window || ''}`;
+        if (before !== after) render();
+      }, 250);
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label'] });
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
   else start();
