@@ -19,6 +19,40 @@
     return number.toLocaleString();
   };
 
+  const firstNumber = (...values) => {
+    for (const value of values) {
+      const number = Number(value);
+      if (Number.isFinite(number) && number >= 0) return number;
+    }
+    return null;
+  };
+
+  function gatewayAccountSnapshot() {
+    const gateway = lastUsage?.gateway;
+    const plan = gateway?.plan?.available ? gateway.plan.data : null;
+    const usage = gateway?.usage?.available ? gateway.usage.data : null;
+    const nested = usage?.usage || plan?.usage || {};
+    const used = firstNumber(
+      usage?.monthly_used,
+      usage?.monthly_tokens_used,
+      nested.monthly_used,
+      nested.monthly_tokens_used,
+    );
+    const cap = firstNumber(
+      usage?.monthly_cap,
+      usage?.monthly_token_limit,
+      plan?.monthly_token_limit,
+      nested.monthly_cap,
+    );
+    return {
+      available: Boolean(gateway && (gateway.plan?.available || gateway.usage?.available)),
+      used,
+      cap,
+      percent: used != null && cap > 0 ? Math.max(0, Math.min(100, (used / cap) * 100)) : null,
+      fetchedAt: gateway?.fetchedAt || null,
+    };
+  }
+
   function addStyle() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
@@ -73,7 +107,11 @@
     root.replaceChildren();
 
     const totals = lastUsage?.totals || {};
-    const pill = element('button', 'co-usage-pill', `Usage ${format(totals.totalTokens)} tokens`);
+    const account = gatewayAccountSnapshot();
+    const pillText = account.percent != null
+      ? `Usage ${Math.round(account.percent)}%`
+      : `Usage ${format(totals.totalTokens)} tokens`;
+    const pill = element('button', 'co-usage-pill', pillText);
     pill.type = 'button';
     pill.title = 'Claude Open session usage';
     pill.addEventListener('click', () => { open = !open; render(); });
@@ -82,7 +120,7 @@
 
     const panel = element('section', 'co-usage-panel');
     const head = element('div', 'co-usage-head');
-    head.appendChild(element('div', 'co-usage-title', 'Session usage'));
+    head.appendChild(element('div', 'co-usage-title', account.available ? 'Gateway usage' : 'Session usage'));
     const close = element('button', 'co-usage-close', '×');
     close.type = 'button';
     close.setAttribute('aria-label', 'Close usage');
@@ -96,6 +134,19 @@
       return;
     }
 
+    if (account.available) {
+      const accountGrid = element('div', 'co-usage-grid');
+      accountGrid.append(
+        card('Monthly used', account.used == null ? 'Not provided' : format(account.used)),
+        card('Monthly limit', account.cap == null ? 'Not provided' : format(account.cap)),
+      );
+      if (account.percent != null) accountGrid.appendChild(card('Monthly usage', `${account.percent.toFixed(1)}%`));
+      panel.appendChild(accountGrid);
+      const freshness = account.fetchedAt ? new Date(account.fetchedAt).toLocaleTimeString() : 'just now';
+      panel.appendChild(element('div', 'co-usage-note', `Fresh gateway account data · updated ${freshness}`));
+      panel.appendChild(element('div', 'co-usage-title', 'This Claude Open session'));
+    }
+
     const grid = element('div', 'co-usage-grid');
     grid.append(
       card('Requests', format(totals.requests)),
@@ -106,7 +157,9 @@
       card('Reasoning', format(totals.reasoningTokens)),
     );
     panel.appendChild(grid);
-    panel.appendChild(element('div', 'co-usage-note', 'Observed in this Claude Open session. Billing and quota are not estimated.'));
+    panel.appendChild(element('div', 'co-usage-note', account.available
+      ? 'Session tokens are observed locally; account totals above come only from the configured gateway.'
+      : 'Observed in this Claude Open session. Billing and quota are not estimated. Configure mapped usage endpoints when your gateway exposes them.'));
 
     const models = (lastUsage.models || [])
       .filter((model) => model.requests > 0)

@@ -17,6 +17,8 @@ export function createMockGateway(config = {}) {
     models = [{ id: 'claude-opus-4-7' }],
     failModels = false,
     etag = null,
+    plan = null,
+    accountUsage = null,
   } = config;
 
   const has = (p) => protocols.includes(p);
@@ -62,6 +64,9 @@ export function createMockGateway(config = {}) {
       }
       return send(200, { data: models }, etag ? { etag } : {});
     }
+
+    if (url.startsWith('/api/billing/plan') && plan) return send(200, plan);
+    if (url.startsWith('/api/billing/usage') && accountUsage) return send(200, accountUsage);
 
     if (url.startsWith('/v1/messages')) {
       if (!has('anthropic')) return send(400, { error: { message: 'use the correct endpoint' } });

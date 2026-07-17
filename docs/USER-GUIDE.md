@@ -25,6 +25,8 @@ The model selector is filled from the gateway's live `/v1/models` response. Refr
 
 Reasoning effort is deliberately conservative. A selector is available only when the adapter knows the exact wire field and the current gateway has behaviorally verified it. **Verify & apply** performs real gateway requests and may incur normal usage charges.
 
+The usage pill refreshes from the local adapter every 15 seconds. It always shows observed session tokens. If your gateway exposes account plan/usage endpoints, configure the optional mapped usage block described in [Usage and context](USAGE-CONTEXT.md); Claude Open then reads those endpoints with the same saved base URL and Credential Manager key, without placing the key in renderer files.
+
 ## Usage widget
 
 The floating widget inside Claude Open shows requests and tokens observed by the current local adapter session, plus available-model and context information. It reads secret-free files generated locally by the adapter.

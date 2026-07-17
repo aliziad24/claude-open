@@ -17,6 +17,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 import {
   handleMessage,
   anthropicToChat,
@@ -33,6 +34,7 @@ import {
   probeEffort,
   UsageTelemetry,
   AnthropicUsageObserver,
+  mappedUsageAdapter,
 } from '@claude-open/gateway-adapter';
 import { ConformanceStore } from '@claude-open/gateway-adapter';
 import { AliasMap, normalizeCatalog, CatalogCache } from '@claude-open/model-catalog';
@@ -58,10 +60,11 @@ function redact(s) {
  */
 export function createAdapterServer({ config, secretStore, log = () => {}, fetchImpl = fetch, gatewayFingerprint, aliasStorePath, probeStorePath, conformanceStore, clientToken = null }) {
   const base = config.baseUrl.replace(/\/+$/, '');
-  // Security-review defect 2(a): cap the request body so a local process cannot
-  // stream an unbounded body and OOM the adapter. Default 10MB; readBody rejects
-  // with a 413-carrying error the moment the cap is exceeded and stops buffering.
-  const maxBodyBytes = config.maxBodyBytes ?? 10 * 1024 * 1024;
+  // Cowork/Code histories can legitimately exceed 10 MB. Bound both the bytes
+  // received and the decoded body, while accepting the compression encodings
+  // used by newer clients. The decoded cap also prevents decompression bombs.
+  const maxBodyBytes = config.maxBodyBytes ?? 64 * 1024 * 1024;
+  const maxWireBodyBytes = config.maxWireBodyBytes ?? maxBodyBytes;
   const fp = gatewayFingerprint || hostFingerprint(base);
   const salt = config.aliasSalt || `claude-open::${fp}`;
 
@@ -94,6 +97,21 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
   const diagToken = randomBytes(24).toString('hex'); // guards /diagnostics
   const resolveCaps = (id) => resolveCapabilities(REGISTRY, id);
   const telemetry = new UsageTelemetry();
+  const usageConfig = config.usage || { adapter: 'none' };
+  const gatewayUsage = mappedUsageAdapter(
+    usageConfig.adapter === 'mapped' ? usageConfig : null,
+    async (endpoint) => {
+      const target = new URL(endpoint, `${base}/`);
+      const gatewayOrigin = new URL(base).origin;
+      if (target.origin !== gatewayOrigin) throw new Error('usage endpoint must use the configured gateway origin');
+      const response = await fetchImpl(target, {
+        headers: upstreamHeaders({ accept: 'application/json' }),
+        signal: timeoutSignal(config.usageTimeoutMs ?? 12000),
+      });
+      if (!response.ok) throw new Error(`usage endpoint returned ${response.status}`);
+      return response.json();
+    },
+  );
 
   function recordUsage(realId, usage, model, route, stream = false) {
     if (!usage) return;
@@ -182,7 +200,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
 
   function readBody(req) {
     return new Promise((resolve, reject) => {
-      let d = '';
+      const chunks = [];
       let bytes = 0;
       let over = false;
       req.on('data', (c) => {
@@ -193,7 +211,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         // pause the stream rather than destroy the socket so the caller can still
         // write a clean 413 response back to the client.
         bytes += Buffer.byteLength(c);
-        if (bytes > maxBodyBytes) {
+        if (bytes > maxWireBodyBytes) {
           over = true;
           req.pause();
           const err = new Error('request body exceeds maximum allowed size');
@@ -201,10 +219,33 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           reject(err);
           return;
         }
-        d += c;
+        chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
       });
       req.on('end', () => {
-        if (!over) resolve(d);
+        if (over) return;
+        try {
+          const wire = Buffer.concat(chunks);
+          const encoding = String(req.headers['content-encoding'] || 'identity').toLowerCase().trim();
+          let decoded;
+          if (!encoding || encoding === 'identity') decoded = wire;
+          else if (encoding === 'gzip' || encoding === 'x-gzip') decoded = gunzipSync(wire, { maxOutputLength: maxBodyBytes });
+          else if (encoding === 'deflate') decoded = inflateSync(wire, { maxOutputLength: maxBodyBytes });
+          else if (encoding === 'br') decoded = brotliDecompressSync(wire, { maxOutputLength: maxBodyBytes });
+          else {
+            const err = new Error(`unsupported content-encoding: ${encoding}`);
+            err.statusCode = 415;
+            throw err;
+          }
+          if (decoded.length > maxBodyBytes) {
+            const err = new Error('request body exceeds maximum allowed size after decompression');
+            err.statusCode = 413;
+            throw err;
+          }
+          resolve(decoded.toString('utf8'));
+        } catch (e) {
+          if (!e.statusCode) e.statusCode = /maxoutputlength|larger than/i.test(String(e.message)) ? 413 : 400;
+          reject(e);
+        }
       });
       req.on('error', (e) => {
         if (!over) reject(e);
@@ -519,7 +560,20 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
       if (method === 'GET' && url.startsWith('/usage')) {
         if (!requireClient(req, res)) return;
         const served = await getCatalog();
-        return sendJson(res, 200, telemetry.snapshot(served.models));
+        const snapshot = telemetry.snapshot(served.models);
+        const [plan, accountUsage] = await Promise.all([
+          gatewayUsage.getPlan(),
+          gatewayUsage.getUsage(),
+        ]);
+        snapshot.gateway = {
+          plan,
+          usage: accountUsage,
+          fetchedAt: Date.now(),
+          source: plan.available || accountUsage.available ? 'configured-gateway' : 'not-configured',
+        };
+        if (plan.available) snapshot.quota = plan;
+        if (accountUsage.available) snapshot.billing = accountUsage;
+        return sendJson(res, 200, snapshot);
       }
 
       // --- count_tokens ---
@@ -780,6 +834,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     diagToken,
     gatewayFingerprint: fp,
     maxBodyBytes,
+    maxWireBodyBytes,
     /** Listen on the configured/free port. Returns the chosen port. */
     async listen(preferredPort = 0, host = '127.0.0.1') {
       const port = await tryListen(server, preferredPort, host);
