@@ -623,7 +623,8 @@ namespace ClaudeOpenLauncher
             ReadRuntimeState();
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + activePort + path);
             request.Method = "GET";
-            request.Timeout = 10000;
+            // Large multi-model gateways (100+ models) need well over 10s on cold discovery.
+            request.Timeout = 120000;
             if (controlAuth)
                 request.Headers["x-claude-open-diag"] = controlToken;
             else
@@ -649,12 +650,31 @@ namespace ClaudeOpenLauncher
                 return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
         }
 
+        // JavaScriptSerializer deserializes JSON arrays as ArrayList, not object[].
+        // Casting with `as object[]` silently yields null and made every catalog
+        // look empty ("Gateway returned no models") despite a full /v1/models body.
+        private static System.Collections.IEnumerable EnumerateJsonArray(object raw)
+        {
+            if (raw == null) return null;
+            object[] asArray = raw as object[];
+            if (asArray != null) return asArray;
+            System.Collections.ArrayList asList = raw as System.Collections.ArrayList;
+            if (asList != null) return asList;
+            System.Collections.IEnumerable asEnum = raw as System.Collections.IEnumerable;
+            if (asEnum != null && !(raw is string)) return asEnum;
+            return null;
+        }
+
         private List<ModelView> ParseModels(Dictionary<string, object> payload)
         {
             List<ModelView> result = new List<ModelView>();
             object rawData;
-            if (payload == null || !payload.TryGetValue("data", out rawData)) return result;
-            object[] rows = rawData as object[];
+            if (payload == null || !payload.TryGetValue("data", out rawData))
+            {
+                // Some gateways/adapters expose the list under "models".
+                if (payload == null || !payload.TryGetValue("models", out rawData)) return result;
+            }
+            System.Collections.IEnumerable rows = EnumerateJsonArray(rawData);
             if (rows == null) return result;
             foreach (object raw in rows)
             {
@@ -712,7 +732,7 @@ namespace ClaudeOpenLauncher
         {
             object raw;
             if (source == null || !source.TryGetValue(key, out raw) || raw == null) return;
-            object[] values = raw as object[];
+            System.Collections.IEnumerable values = EnumerateJsonArray(raw);
             if (values != null) foreach (object value in values) if (value != null) target.Add(value.ToString());
         }
 
@@ -933,7 +953,7 @@ namespace ClaudeOpenLauncher
             object modelsRaw;
             if (model != null && usage.TryGetValue("models", out modelsRaw))
             {
-                object[] rows = modelsRaw as object[];
+                System.Collections.IEnumerable rows = EnumerateJsonArray(modelsRaw);
                 if (rows != null)
                 {
                     foreach (object raw in rows)
@@ -1369,16 +1389,68 @@ namespace ClaudeOpenLauncher
 
         private string FindInstallRoot()
         {
-            string cursor = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
-            for (int i = 0; i < 5; i++)
+            // Prefer the directory that actually contains the shipped adapter + runtime.
+            // BaseDirectory alone is wrong when the user launches a copy of ClaudeOpen.exe
+            // from a parent folder (e.g. F:\AntiGravity\Claude-Open\ClaudeOpen-fixed.exe)
+            // or when a package wrapper changes the process base directory.
+            List<string> seeds = new List<string>();
+            try
             {
-                if (File.Exists(Path.Combine(cursor, "adapter", "adapter.mjs")) ||
-                    File.Exists(Path.Combine(cursor, "apps", "adapter-server", "src", "main.js"))) return cursor;
-                DirectoryInfo parent = Directory.GetParent(cursor);
-                if (parent == null) break;
-                cursor = parent.FullName;
+                string asm = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrEmpty(asm))
+                    seeds.Add(Path.GetDirectoryName(Path.GetFullPath(asm)));
             }
+            catch { }
+            try
+            {
+                string exe = Application.ExecutablePath;
+                if (!string.IsNullOrEmpty(exe))
+                    seeds.Add(Path.GetDirectoryName(Path.GetFullPath(exe)));
+            }
+            catch { }
+            seeds.Add(Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory));
+
+            List<string> candidates = new List<string>();
+            foreach (string seed in seeds)
+            {
+                if (string.IsNullOrEmpty(seed)) continue;
+                string cursor = seed;
+                for (int i = 0; i < 6; i++)
+                {
+                    AddUniquePath(candidates, cursor);
+                    // Common layout: bootstrap/parent folder with an "install" child.
+                    AddUniquePath(candidates, Path.Combine(cursor, "install"));
+                    AddUniquePath(candidates, Path.Combine(cursor, "ClaudeOpen-bootstrap"));
+                    DirectoryInfo parent = Directory.GetParent(cursor);
+                    if (parent == null) break;
+                    cursor = parent.FullName;
+                }
+            }
+
+            foreach (string candidate in candidates)
+            {
+                if (IsInstallRoot(candidate)) return candidate;
+            }
+
+            // Last resort: original behavior.
             return Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
+        }
+
+        private static void AddUniquePath(List<string> list, string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            try { path = Path.GetFullPath(path); } catch { return; }
+            for (int i = 0; i < list.Count; i++)
+                if (string.Equals(list[i], path, StringComparison.OrdinalIgnoreCase)) return;
+            list.Add(path);
+        }
+
+        private static bool IsInstallRoot(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+            // Require a runnable adapter entrypoint, not only the install marker.
+            return File.Exists(Path.Combine(dir, "adapter", "adapter.mjs"))
+                || File.Exists(Path.Combine(dir, "apps", "adapter-server", "src", "main.js"));
         }
 
         private void ReadRuntimeState()
@@ -1846,6 +1918,25 @@ namespace ClaudeOpenLauncher
             DateTime startedAfter = DateTime.Now.AddSeconds(-1);
             try
             {
+                // Prefer a direct GPU-safe launch. AppX activation via shell:AppsFolder
+                // often dies immediately on machines where Chromium's GPU process
+                // crashes (exit -2147483645), especially with AV/GPU virtualization.
+                // Direct launch still uses the isolated CLAUDE_USER_DATA_DIR profile
+                // and the copied signed client binary.
+                Process direct = StartGpuSafeClient(expectedExe);
+                if (direct != null)
+                {
+                    AppendLog("Client started (GPU-safe direct launch, PID " + direct.Id + ")");
+                    // Give the main window a moment; crash-loops exit within ~1s.
+                    Thread.Sleep(1500);
+                    try
+                    {
+                        if (!direct.HasExited) return direct;
+                    }
+                    catch { }
+                    AppendLog("GPU-safe direct launch exited early; falling back to sparse package activation...");
+                }
+
                 // AppX activation does not accept a private environment block.
                 // Supply the isolated profile only for the short activation
                 // window and restore the user's prior value in finally.
@@ -1874,6 +1965,28 @@ namespace ClaudeOpenLauncher
             finally
             {
                 Environment.SetEnvironmentVariable("CLAUDE_USER_DATA_DIR", restore, EnvironmentVariableTarget.User);
+            }
+        }
+
+        // Start the signed client with flags that avoid fatal GPU process crashes
+        // seen on some Windows + antivirus setups (Kaspersky/etc).
+        private Process StartGpuSafeClient(string expectedExe)
+        {
+            if (string.IsNullOrEmpty(expectedExe) || !File.Exists(expectedExe)) return null;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = expectedExe;
+                psi.Arguments = "--disable-gpu --disable-gpu-compositing --disable-software-rasterizer --disable-gpu-sandbox";
+                psi.UseShellExecute = false;
+                psi.WorkingDirectory = Path.GetDirectoryName(expectedExe);
+                psi.EnvironmentVariables["CLAUDE_USER_DATA_DIR"] = profilePath;
+                return Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("GPU-safe direct launch failed: " + ex.Message);
+                return null;
             }
         }
 
