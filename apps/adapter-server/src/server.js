@@ -234,10 +234,10 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     }
   }
 
-  // Bounded timeout for the COLD-cache discovery fetch so the client's
-  // ConfigHealth reachability probe (a ~10s one-shot that a first-run CCD binary
-  // download can starve to ~8s) never blocks on a slow live upstream round-trip.
-  const COLD_DISCOVERY_TIMEOUT_MS = config.coldDiscoveryTimeoutMs ?? 4000;
+  // Cold discovery timeout. 4s was too aggressive for large multi-model
+  // gateways (100+ models) over WAN TLS and caused empty catalogs while
+  // /health/deep (unbounded) still passed. Override via config.coldDiscoveryTimeoutMs.
+  const COLD_DISCOVERY_TIMEOUT_MS = config.coldDiscoveryTimeoutMs ?? 30000;
 
   /**
    * Fetch + normalize + classify the live model catalog (with cache).
@@ -247,9 +247,9 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
    * with no upstream round-trip. This is what the client's ConfigHealth probe
    * hits (directly via GET /v1/models, and indirectly via the /v1/messages
    * tier-probe reconcile) — a warm cache must answer in <200ms. A cold cache
-   * still does exactly one live fetch to populate, bounded by a short timeout so
-   * even the first probe is prompt. Pass { preferCache:false } to FORCE a live
-   * refresh (used only by the deliberate deep-health check, never the probe).
+   * still does exactly one live fetch to populate (single-flight), bounded so
+   * concurrent probes share the same in-flight request. Pass { preferCache:false }
+   * to FORCE a live refresh (used only by the deliberate deep-health check).
    *
    * The served catalog is always REAL data from the last successful fetch and is
    * marked `stale` when older than the TTL — no fabricated liveness.
@@ -257,39 +257,55 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
    * @param {object} [opts]
    * @param {boolean} [opts.preferCache=true] serve a warm cache without fetching
    */
+  let catalogInflight = null;
   async function getCatalog({ preferCache = true } = {}) {
     // Fast path: a populated cache answers the probe without touching upstream.
     if (preferCache && cache.hasData()) return cache.serve();
-    try {
-      const headers = { ...upstreamHeaders(), ...cache.conditionalHeaders() };
-      const resp = await fetchImpl(`${base}${config.modelsEndpoint || '/v1/models'}?limit=1000`, {
-        method: 'GET',
-        headers,
-        // Only bound the COLD fetch; a warm cache never reaches here. If the
-        // signal cannot be created (old runtime), fall through unbounded.
-        signal: timeoutSignal(COLD_DISCOVERY_TIMEOUT_MS),
-      });
-      if (resp.status === 304) {
-        cache.recordNotModified();
+    if (catalogInflight) return catalogInflight;
+    catalogInflight = (async () => {
+      try {
+        // Ensure credential is resolved before discovery so concurrent requests
+        // don't race PowerShell CredRead and observe an empty/unauth catalog.
+        try {
+          secretStore.resolve();
+        } catch {
+          /* non-fatal */
+        }
+        const headers = { ...upstreamHeaders(), ...cache.conditionalHeaders() };
+        const resp = await fetchImpl(`${base}${config.modelsEndpoint || '/v1/models'}?limit=1000`, {
+          method: 'GET',
+          headers,
+          // Only bound the COLD fetch; a warm cache never reaches here. If the
+          // signal cannot be created (old runtime), fall through unbounded.
+          signal: timeoutSignal(COLD_DISCOVERY_TIMEOUT_MS),
+        });
+        if (resp.status === 304) {
+          cache.recordNotModified();
+          return cache.serve();
+        }
+        if (!resp.ok) {
+          cache.recordFailure(`gateway HTTP ${resp.status} during discovery`);
+          return cache.serve();
+        }
+        const body = await resp.json();
+        const list = Array.isArray(body) ? body : body.data || body.models || [];
+        const normalized = normalizeCatalog(list, aliasMap, {
+          resolveCaps,
+          modelOverrides: config.modelOverrides || {},
+        });
+        cache.recordFresh(normalized, resp.headers.get?.('etag') || null);
+        persistAliases(); // Defect 2.7: keep alias->realId stable across restarts
+        log({ evt: 'catalog-loaded', count: normalized.length, gateway: fp });
         return cache.serve();
-      }
-      if (!resp.ok) {
-        cache.recordFailure(`gateway HTTP ${resp.status} during discovery`);
+      } catch (e) {
+        cache.recordFailure(`discovery error: ${redact(e.message)}`);
+        log({ evt: 'warn', msg: `catalog discovery failed: ${redact(e.message)}` });
         return cache.serve();
+      } finally {
+        catalogInflight = null;
       }
-      const body = await resp.json();
-      const list = Array.isArray(body) ? body : body.data || [];
-      const normalized = normalizeCatalog(list, aliasMap, {
-        resolveCaps,
-        modelOverrides: config.modelOverrides || {},
-      });
-      cache.recordFresh(normalized, resp.headers.get?.('etag') || null);
-      persistAliases(); // Defect 2.7: keep alias->realId stable across restarts
-      return cache.serve();
-    } catch (e) {
-      cache.recordFailure(`discovery error: ${redact(e.message)}`);
-      return cache.serve();
-    }
+    })();
+    return catalogInflight;
   }
 
   const server = http.createServer(async (req, res) => {
@@ -318,14 +334,18 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         // discovery so it reports real current gateway state, never a warm cache.
         const served = await getCatalog({ preferCache: false });
         const requested = q.get('model') ? aliasMap.realFor(q.get('model')) : null;
+        const usable = served.models.filter((m) => isChatUsable({ modelType: m.modelType, routes: m.routes }));
+        // Prefer an explicit request, then common chat IDs, then first usable.
+        // Avoid locking onto a broken first listing entry (e.g. local proxy stubs → 503).
+        const preferIds = ['gpt-5.6-sol', 'gpt-5.5', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022'];
         const healthModel = requested
-          ? served.models.find((m) => m.realId === requested)
-          : served.models.find((m) => isChatUsable({ modelType: m.modelType, routes: m.routes }));
+          ? usable.find((m) => m.realId === requested)
+          : preferIds.map((id) => usable.find((m) => m.realId === id)).find(Boolean) || usable[0];
         const inferenceModel = healthModel?.realId;
         const healthDecision = inferenceModel
           ? resolveRoute({ realId: inferenceModel, model: healthModel, override: (config.modelOverrides || {})[inferenceModel], probeCache, gatewayFingerprint: fp })
           : { route: null };
-        const result = await runHealthChecks({
+        let result = await runHealthChecks({
           baseUrl: base,
           headers: upstreamHeaders(),
           modelsEndpoint: config.modelsEndpoint || '/v1/models',
@@ -336,9 +356,40 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           secretPresent: config.auth?.kind === 'none' ? true : Boolean(secretStore.resolve()),
           fetchImpl,
         });
+        // If the preferred model fails inference, try a few other usable models.
+        if (result.inference?.status === 'fail' && usable.length > 1) {
+          for (const candidate of usable.slice(0, 8)) {
+            if (candidate.realId === inferenceModel) continue;
+            const decision = resolveRoute({
+              realId: candidate.realId,
+              model: candidate,
+              override: (config.modelOverrides || {})[candidate.realId],
+              probeCache,
+              gatewayFingerprint: fp,
+            });
+            if (!decision.route) continue;
+            const attempt = await runHealthChecks({
+              baseUrl: base,
+              headers: upstreamHeaders(),
+              modelsEndpoint: config.modelsEndpoint || '/v1/models',
+              inferenceModel: candidate.realId,
+              inferenceRoute: decision.route,
+              requireInference: true,
+              configValid: Boolean(config.baseUrl),
+              secretPresent: config.auth?.kind === 'none' ? true : Boolean(secretStore.resolve()),
+              fetchImpl,
+            });
+            if (attempt.inference?.status === 'pass') {
+              result = attempt;
+              break;
+            }
+          }
+        }
         return sendJson(res, 200, {
           liveness: 'pass',
           gateway: fp,
+          catalogCount: served.models.length,
+          usableCount: usable.length,
           ...result,
         });
       }
@@ -512,7 +563,18 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
             },
           }));
         res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ data, has_more: false, stale: served.stale }));
+        // Include both OpenAI (`data`) and alternate (`models`) keys so clients
+        // that deserialize either shape still see a non-empty catalog.
+        return res.end(
+          JSON.stringify({
+            object: 'list',
+            data,
+            models: data,
+            has_more: false,
+            stale: served.stale,
+            reason: served.reason || null,
+          }),
+        );
       }
 
       // --- truthful process-session token/context telemetry ---

@@ -116,15 +116,58 @@ export async function start(opts = {}) {
     }
   }
 
-  // STARTUP CATALOG WARM (NEXT-CORRECTIVE-WAVE): pre-fetch the model catalog once
-  // as soon as we are listening, so the genuine client's very first ConfigHealth
-  // reachability probe (GET /v1/models, and the /v1/messages tier-probe
-  // reconcile) is served instantly from a warm cache rather than blocking on a
-  // live upstream round-trip while a first-run CCD download starves its ~10s
-  // probe budget. Non-fatal: if the gateway is briefly unreachable the cold-cache
-  // path still fetches (bounded) on first probe. The launcher separately GETs
-  // /v1/models against THIS same running adapter before launch, which warms the
-  // SAME process cache — this is belt-and-suspenders for adapter-first startups.
+  // Publish runtime.json BEFORE catalog warm / Credential Manager resolve.
+  // On Windows, secretStore.source() shells out to PowerShell CredRead and can
+  // take several seconds on cold start; large multi-model catalogs add more
+  // latency. The Control Center waits for runtime.json with a short budget and
+  // previously reported "Adapter failed to respond in time" even though the
+  // process was healthy. Catalog warm stays non-fatal and still primes the
+  // cache for the client's first ConfigHealth probe.
+  //
+  // Do not call secretStore.source() here — that blocks readiness. Use a
+  // non-secret hint derived from config auth shape only.
+  const secretSourceHint = (() => {
+    const kind = loaded.config?.auth?.kind;
+    if (kind === 'none') return 'none';
+    if (loaded.config?.auth?.credentialRef) return 'credential-manager';
+    if (loaded.config?.auth?.envVar) return `env:${loaded.config.auth.envVar}`;
+    return 'unresolved';
+  })();
+
+  const runtimeFile = join(rtDir, 'runtime.json');
+  try {
+    writeFileSync(
+      runtimeFile,
+      JSON.stringify(
+        {
+          port,
+          gateway: adapter.gatewayFingerprint,
+          controlToken: adapter.diagToken,
+          clientToken,
+          secretSource: secretSourceHint,
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+          companion: companionState,
+        },
+        null,
+        2,
+      ),
+    );
+    restrictAcl(runtimeFile, env);
+  } catch (e) {
+    log({ evt: 'warn', msg: `could not write runtime.json: ${e.message}` });
+  }
+
+  log({ evt: 'listening', port, gateway: adapter.gatewayFingerprint, secretSource: secretSourceHint });
+
+  // Catalog warm after readiness: runtime.json is already published so the
+  // Control Center can proceed, while this still primes the cache before the
+  // official client's first ConfigHealth probe when start() is awaited.
+  try {
+    loaded.secretStore.resolve();
+  } catch {
+    /* non-fatal */
+  }
   try {
     await adapter._getCatalog();
     log({ evt: 'catalog-warm', ok: true });
@@ -161,35 +204,13 @@ export async function start(opts = {}) {
         // generatedAt timestamp and never needs a secret-bearing error string.
       }
     };
-    await refreshWidget();
+    // Non-blocking first refresh so readiness is not delayed further.
+    setTimeout(() => {
+      refreshWidget().catch(() => {});
+    }, 0);
     setInterval(refreshWidget, 15000).unref();
   }
 
-  const runtimeFile = join(rtDir, 'runtime.json');
-  try {
-    writeFileSync(
-      runtimeFile,
-      JSON.stringify(
-        {
-          port,
-          gateway: adapter.gatewayFingerprint,
-          controlToken: adapter.diagToken,
-          clientToken,
-          secretSource: loaded.secretStore.source(),
-          pid: process.pid,
-          startedAt: new Date().toISOString(),
-          companion: companionState,
-        },
-        null,
-        2,
-      ),
-    );
-    restrictAcl(runtimeFile, env);
-  } catch (e) {
-    log({ evt: 'warn', msg: `could not write runtime.json: ${e.message}` });
-  }
-
-  log({ evt: 'listening', port, gateway: adapter.gatewayFingerprint, secretSource: loaded.secretStore.source() });
   return { adapter, companion, port, runtimeDir: rtDir, clientToken };
 }
 
