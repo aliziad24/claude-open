@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.2.1 - 2026-07-30
+
+- Fixed gateway and credential reconnection so rotated credentials clear account-scoped model caches and session usage.
+- Fixed Claude Code over SSH by maintaining a profile-scoped reverse loopback bridge to the active adapter.
+- Fixed live model refresh and per-model context metadata without inventing fallback limits.
+- Fixed launcher identity, taskbar grouping, and shortcuts so startup cannot bypass the isolated Claude Open profile.
+- Improved usage reporting for rolling 5-hour and 24-hour windows, unlimited monthly plans, and low percentages.
+- Added regression coverage for credential rotation, catalog isolation, reconnect behavior, usage refresh, and identity safety.
+
+## 0.2.0 - 2026-07-16
+
 - Added a dedicated Windows launcher, icon, Control Center, isolated profile, and transactional installer.
 - Added secure user-supplied gateway configuration backed by Windows Credential Manager.
 - Added Anthropic Messages, OpenAI Chat Completions, and OpenAI Responses adaptation.

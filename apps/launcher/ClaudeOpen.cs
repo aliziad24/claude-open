@@ -21,8 +21,8 @@ using System.Text.RegularExpressions;
 [assembly: AssemblyDescription("Claude Open launcher and gateway control center")]
 [assembly: AssemblyCompany("Claude Open Contributors")]
 [assembly: AssemblyProduct("Claude Open")]
-[assembly: AssemblyVersion("0.2.0.0")]
-[assembly: AssemblyFileVersion("0.2.0.0")]
+[assembly: AssemblyVersion("0.2.1.0")]
+[assembly: AssemblyFileVersion("0.2.1.0")]
 
 namespace ClaudeOpenLauncher
 {
