@@ -24,6 +24,7 @@
 
   const firstNumber = (...values) => {
     for (const value of values) {
+      if (value == null || value === '') continue;
       const number = Number(value);
       if (Number.isFinite(number) && number >= 0) return number;
     }
@@ -111,12 +112,55 @@
       usage?.monthly_token_limit,
       plan?.monthly_token_limit,
       nested.monthly_cap,
+      nested.monthly_tokens_limit,
     );
+    const windowKind = String(
+      usage?.token_window ||
+      plan?.token_limit_window ||
+      nested.token_window ||
+      plan?.limits?.window ||
+      '',
+    ).toLowerCase();
+    const windowUsed = firstNumber(
+      usage?.token_window_used,
+      nested.token_window_used,
+      usage?.daily_used,
+      nested.daily_used,
+    );
+    const windowCap = firstNumber(
+      usage?.token_window_limit,
+      nested.token_window_limit,
+      plan?.token_limit,
+      plan?.limits?.tokens_per_window,
+      plan?.five_hour_token_limit,
+      usage?.daily_cap,
+      nested.daily_cap,
+    );
+    const monthlyPercent = used != null && cap > 0 ? Math.max(0, (used / cap) * 100) : null;
+    const windowPercent = windowUsed != null && windowCap > 0
+      ? Math.max(0, (windowUsed / windowCap) * 100)
+      : null;
+    const isFiveHour = /(?:rolling[_-]?)?5h|five[_ -]?hour/.test(windowKind);
     return {
       available: Boolean(gateway && (gateway.plan?.available || gateway.usage?.available)),
       used,
       cap,
-      percent: used != null && cap > 0 ? Math.max(0, Math.min(100, (used / cap) * 100)) : null,
+      monthlyUnlimited: cap == null && [
+        usage?.monthly_cap,
+        usage?.monthly_token_limit,
+        plan?.monthly_token_limit,
+        nested.monthly_cap,
+        nested.monthly_tokens_limit,
+      ].some((value) => value === null),
+      monthlyPercent,
+      windowKind,
+      windowUsed,
+      windowCap,
+      windowPercent,
+      windowLabel: isFiveHour ? 'Rolling 5-hour' : (/24h/.test(windowKind) ? 'Rolling 24-hour' : 'Daily'),
+      windowShort: isFiveHour ? '5h' : (/24h/.test(windowKind) ? '24h' : 'day'),
+      percent: monthlyPercent ?? windowPercent,
+      percentSource: monthlyPercent != null ? 'month' : (windowPercent != null ? 'window' : null),
       fetchedAt: gateway?.fetchedAt || null,
     };
   }
@@ -185,7 +229,7 @@
     const gatewayAge = Number.isFinite(fetchedAtMs) ? Date.now() - fetchedAtMs : Infinity;
     const stale = account.available && gatewayAge > STALE_MS;
     let pillText = account.percent != null
-      ? `Usage ${Math.round(account.percent)}%`
+      ? `Usage ${account.percent < 10 ? account.percent.toFixed(1) : Math.round(account.percent)}%${account.percentSource === 'window' ? ` - ${account.windowShort}` : ''}`
       : `Usage ${format(totals.totalTokens)} tokens`;
     if (stale) pillText += ' - stale';
     if (selectedContext?.window) pillText += ` - ${formatContext(selectedContext.window)} ctx`;
@@ -234,9 +278,16 @@
       const accountGrid = element('div', 'co-usage-grid');
       accountGrid.append(
         card('Monthly used', account.used == null ? 'Not provided' : format(account.used)),
-        card('Monthly limit', account.cap == null ? 'Not provided' : format(account.cap)),
+        card('Monthly limit', account.monthlyUnlimited ? 'Unlimited' : (account.cap == null ? 'Not provided' : format(account.cap))),
       );
-      if (account.percent != null) accountGrid.appendChild(card('Monthly usage', `${account.percent.toFixed(1)}%`));
+      if (account.monthlyPercent != null) accountGrid.appendChild(card('Monthly usage', `${account.monthlyPercent.toFixed(1)}%`));
+      if (account.windowCap > 0) {
+        accountGrid.append(
+          card(`${account.windowLabel} used`, format(account.windowUsed)),
+          card(`${account.windowLabel} limit`, format(account.windowCap)),
+          card(`${account.windowLabel} usage`, `${account.windowPercent.toFixed(1)}%`),
+        );
+      }
       panel.appendChild(accountGrid);
       const freshness = account.fetchedAt ? new Date(account.fetchedAt).toLocaleTimeString() : 'unknown';
       panel.appendChild(element('div', stale ? 'co-usage-error' : 'co-usage-note',

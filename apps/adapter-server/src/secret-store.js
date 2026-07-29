@@ -88,16 +88,26 @@ export function resolveFromProfileHostCreds(filePath, field = 'ANTHROPIC_AUTH_TO
  * @param {string} [spec.credentialTarget]  Credential Manager target name
  * @param {string} [spec.envVar]            environment variable to read
  * @param {object} [spec.env]                environment snapshot (tests/launcher)
+ * @param {number} [spec.cacheTtlMs=2000]    maximum time to retain a resolved value
+ * @param {()=>number} [spec.now]             clock injection for tests
+ * @param {(target:string)=>string|null} [spec.resolveCredential] resolver injection for tests
  * @param {{filePath:string, field?:string}} [spec.profileHostCreds]  fallback live source
- * @returns {{resolve:()=>string|null, fingerprint:()=>string, source:()=>string}}
+ * @returns {{resolve:()=>string|null, fingerprint:()=>string, source:()=>string, invalidate:()=>void}}
  */
 export function createSecretStore(spec = {}) {
   let cached = null;
+  let cachedAt = -Infinity;
   let sourceLabel = 'unresolved';
+  const now = typeof spec.now === 'function' ? spec.now : () => Date.now();
+  const cacheTtlMs = Math.max(0, Number(spec.cacheTtlMs ?? 2000));
+  const credentialResolver =
+    typeof spec.resolveCredential === 'function'
+      ? spec.resolveCredential
+      : resolveFromCredentialManager;
 
   function doResolve() {
     if (spec.credentialTarget) {
-      const v = resolveFromCredentialManager(spec.credentialTarget);
+      const v = credentialResolver(spec.credentialTarget);
       if (v) {
         sourceLabel = 'credential-manager';
         return v;
@@ -112,17 +122,29 @@ export function createSecretStore(spec = {}) {
     return null;
   }
 
+  function current() {
+    if (cachedAt === -Infinity || now() - cachedAt >= cacheTtlMs) {
+      cached = doResolve();
+      cachedAt = now();
+    }
+    return cached;
+  }
+
   return {
     resolve() {
-      if (cached == null) cached = doResolve();
-      return cached;
+      return current();
     },
     fingerprint() {
-      return fingerprintSecret(cached ?? doResolve());
+      return fingerprintSecret(current());
     },
     source() {
-      if (cached == null) cached = doResolve();
+      current();
       return sourceLabel;
+    },
+    invalidate() {
+      cached = null;
+      cachedAt = -Infinity;
+      sourceLabel = 'unresolved';
     },
   };
 }

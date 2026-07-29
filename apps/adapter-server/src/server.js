@@ -14,7 +14,7 @@
 // persisting it so the isolated Claude config can be pointed at it.
 
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
@@ -47,6 +47,13 @@ function redact(s) {
   return String(s || '')
     .replace(/(authorization|x-api-key|bearer)\s*[:=]?\s*\S+/gi, '$1 <redacted>')
     .replace(/sk-[A-Za-z0-9\-_]{6,}/g, '<redacted>');
+}
+
+function connectionFingerprint(gatewayFingerprint, credentialFingerprint) {
+  return createHash('sha256')
+    .update(`${gatewayFingerprint || ''}\0${credentialFingerprint || '<none>'}`)
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /**
@@ -99,7 +106,28 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
   const probeCache = new Map();
   const diagToken = randomBytes(24).toString('hex'); // guards /diagnostics
   const resolveCaps = (id) => resolveCapabilities(REGISTRY, id);
-  const telemetry = new UsageTelemetry();
+  let telemetry = new UsageTelemetry();
+  let activeCredentialFingerprint = secretStore.fingerprint();
+  let activeConnectionFingerprint = connectionFingerprint(fp, activeCredentialFingerprint);
+
+  function ensureConnectionScope() {
+    const credentialFingerprint = secretStore.fingerprint();
+    const nextConnectionFingerprint = connectionFingerprint(fp, credentialFingerprint);
+    if (nextConnectionFingerprint !== activeConnectionFingerprint) {
+      cache.clear();
+      probeCache.clear();
+      telemetry = new UsageTelemetry();
+      activeCredentialFingerprint = credentialFingerprint;
+      activeConnectionFingerprint = nextConnectionFingerprint;
+      log({
+        evt: 'connection-changed',
+        gateway: fp,
+        connection: activeConnectionFingerprint,
+        msg: 'active credential changed; account-scoped caches and session usage reset',
+      });
+    }
+    return activeConnectionFingerprint;
+  }
   const usageConfig = config.usage || { adapter: 'none' };
   const gatewayUsage = mappedUsageAdapter(
     usageConfig.adapter === 'mapped' ? usageConfig : null,
@@ -116,7 +144,8 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     },
   );
 
-  function recordUsage(realId, usage, model, route, stream = false) {
+  function recordUsage(realId, usage, model, route, stream = false, requestConnectionFingerprint = activeConnectionFingerprint) {
+    if (requestConnectionFingerprint !== activeConnectionFingerprint) return;
     if (!usage) return;
     telemetry.record({
       model: realId,
@@ -170,6 +199,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
 
   /** Build upstream headers from the configured auth + resolved secret. */
   function upstreamHeaders(extra = {}) {
+    ensureConnectionScope();
     const h = { 'content-type': 'application/json', ...(config.customHeaders || {}), ...extra };
     const secret = secretStore.resolve();
     const kind = config.auth?.kind;
@@ -302,6 +332,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
    * @param {boolean} [opts.preferCache=true] serve a warm cache without fetching
    */
   async function getCatalog({ preferCache = true } = {}) {
+    const catalogConnectionFingerprint = ensureConnectionScope();
     // Fast path only while fresh. The previous hasData() check made the first
     // successful catalog permanent for the lifetime of the adapter.
     if (preferCache && cache.isFresh()) return cache.serve();
@@ -343,6 +374,10 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         resolveCaps,
         modelOverrides: config.modelOverrides || {},
       });
+      // A credential can rotate while discovery is in flight. Discard that
+      // completed response instead of placing old-account models into the new
+      // connection's cache.
+      if (catalogConnectionFingerprint !== activeConnectionFingerprint) return cache.serve();
       cache.recordFresh(normalized, resp.headers.get?.('etag') || null);
       persistAliases(); // Defect 2.7: keep alias->realId stable across restarts
       return cache.serve();
@@ -357,6 +392,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     const method = req.method || 'GET';
     log({ evt: 'request', method, path: url.split('?', 1)[0] });
     try {
+      const requestConnectionFingerprint = ensureConnectionScope();
       // --- health (liveness only; NOT overall gateway health) ---
       if (method === 'GET' && (url === '/health' || url === '/')) {
         return sendJson(res, 200, {
@@ -365,6 +401,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           scope: 'liveness-only',
           note: 'this endpoint proves the adapter process is up; use /health/deep for gateway health',
           gateway: fp,
+          connection: requestConnectionFingerprint,
           secretSource: secretStore.source(),
           hasCatalog: cache.hasData(),
         });
@@ -587,6 +624,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         if (!requireClient(req, res)) return;
         const served = await getCatalog();
         const snapshot = telemetry.snapshot(served.models);
+        snapshot.connectionFingerprint = requestConnectionFingerprint;
         const [plan, accountUsage] = await Promise.all([
           gatewayUsage.getPlan(),
           gatewayUsage.getUsage(),
@@ -682,7 +720,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         const wantStream = !!bodyObj.stream;
 
         if (wantStream) {
-          return streamMessage(res, { bodyObj, model, override, realId });
+          return streamMessage(res, { bodyObj, model, override, realId, requestConnectionFingerprint });
         }
         const result = await handleMessage({
           baseUrl: base,
@@ -703,7 +741,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         });
         if (result.status >= 200 && result.status < 300) {
           const decision = resolveRoute({ realId, model, override, probeCache, gatewayFingerprint: fp });
-          recordUsage(realId, result.body?.usage, model, decision.route, false);
+          recordUsage(realId, result.body?.usage, model, decision.route, false, requestConnectionFingerprint);
         }
         log({ evt: 'messages', model: realId, status: result.status });
         return sendJson(res, result.status, result.body);
@@ -719,7 +757,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
   });
 
   /** Stream a /v1/messages response by translating the upstream SSE. */
-  async function streamMessage(res, { bodyObj, model, override, realId }) {
+  async function streamMessage(res, { bodyObj, model, override, realId, requestConnectionFingerprint }) {
     const decision = resolveRoute({ realId, model, override, probeCache, gatewayFingerprint: fp });
     if (!decision.route) {
       return sendJson(res, 400, { type: 'error', error: { type: 'invalid_request_error', message: decision.reason } });
@@ -742,7 +780,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           res.write(Buffer.from(value));
         }
         observer.push(decoder.decode());
-        recordUsage(realId, observer.finish(), model, decision.route, true);
+        recordUsage(realId, observer.finish(), model, decision.route, true, requestConnectionFingerprint);
       }
       return res.end();
     }
@@ -764,7 +802,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
       return sendJson(res, upstream.status, { type: 'error', error: { type: 'api_error', message: redact(safeErr(text)) } });
     }
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-    const onUsage = (usage) => recordUsage(realId, usage, model, decision.route, true);
+    const onUsage = (usage) => recordUsage(realId, usage, model, decision.route, true, requestConnectionFingerprint);
     for await (const frame of translate(decodedChunks(upstream.body), realId, { onUsage })) res.write(frame);
     return res.end();
   }
