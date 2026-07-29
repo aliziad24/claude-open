@@ -14,10 +14,10 @@ The user does not need Claude, Node.js, npm, Git, or developer tools installed. 
 2. In Control Center, enter the gateway root URL, authentication style, and API key. Do not put `/v1/messages`, `/v1/chat/completions`, or `/v1/responses` in the root URL unless the gateway documentation explicitly requires it.
 3. Save configuration. The credential is stored in Windows Credential Manager, not in the repository or normal Claude profile.
 4. Select **Verify Gateway**. Read the result without copying secrets into chat.
-5. Select a model from the live list. The repository does not hardcode a user-specific catalog.
+5. Select a model from the live list. Confirm the selector refreshes after gateway catalog changes and groups Claude, GPT, Grok, Kimi, MiniMax, Qwen, then other models. The repository does not hardcode a user-specific catalog.
 6. Select reasoning effort only if shown for that model. Hidden options are unverified, not missing.
 7. Launch Claude Open and run a short disposable chat.
-8. Confirm the local usage widget updates. Its counters describe the current local session; the gateway remains authoritative for billing.
+8. Confirm the local usage widget updates, then use **Refresh** and verify its timestamp advances. Its counters describe the current local session; the gateway remains authoritative for billing.
 
 ## Isolation check
 

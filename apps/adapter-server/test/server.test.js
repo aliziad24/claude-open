@@ -199,6 +199,122 @@ test('real server: /usage records real non-stream token usage and context withou
   });
 });
 
+test('real server: /usage fetches fresh account data through the configured gateway and active auth', async () => {
+  await withStack(
+    {
+      protocols: ['anthropic'],
+      models: [{ id: 'claude-opus-4-7' }],
+      auth: { kind: 'bearer', secret: 'fixture-secret' },
+      plan: { monthly_token_limit: 500_000_000 },
+      accountUsage: { monthly_used: 141_448_246 },
+    },
+    {
+      usage: {
+        adapter: 'mapped',
+        planEndpoint: '/api/billing/plan',
+        usageEndpoint: '/api/billing/usage',
+      },
+    },
+    async (local) => {
+      const result = await (await fetch(`${local}/usage`)).json();
+      assert.equal(result.gateway.source, 'configured-gateway');
+      assert.equal(result.gateway.plan.available, true);
+      assert.equal(result.gateway.plan.data.monthly_token_limit, 500_000_000);
+      assert.equal(result.gateway.usage.data.monthly_used, 141_448_246);
+      assert.equal(result.quota.source, 'gateway');
+      assert.equal(result.billing.source, 'gateway');
+      assert.ok(result.gateway.fetchedAt > 0);
+      assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
+    },
+  );
+});
+
+test('real server: rotating the active credential invalidates catalog and session usage', async () => {
+  let key = 'account-one';
+  const secretStore = {
+    resolve: () => key,
+    fingerprint: () => `fingerprint-${key}`,
+    source: () => 'fixture',
+  };
+  const fetchImpl = async (url, init = {}) => {
+    const auth = init.headers?.authorization;
+    const account = auth === 'Bearer account-one'
+      ? 'one'
+      : (auth === 'Bearer account-two' ? 'two' : null);
+    if (!account) {
+      return new Response(JSON.stringify({ error: { message: 'invalid credential' } }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (String(url).includes('/v1/models')) {
+      return new Response(JSON.stringify({ data: [{ id: `claude-account-${account}` }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (String(url).includes('/v1/messages')) {
+      return new Response(JSON.stringify({
+        id: `msg_${account}`,
+        type: 'message',
+        role: 'assistant',
+        model: `claude-account-${account}`,
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: account === 'one' ? 7 : 17, output_tokens: 2 },
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response('{}', { status: 404 });
+  };
+  const adapter = createAdapterServer({
+    config: {
+      baseUrl: 'https://gateway.example.test',
+      auth: { kind: 'bearer' },
+      modelsEndpoint: '/v1/models',
+      aliasSalt: 'rotation-test',
+      catalogTtlMs: 60000,
+    },
+    secretStore,
+    fetchImpl,
+  });
+  const port = await adapter.listen(0, '127.0.0.1');
+  const local = `http://127.0.0.1:${port}`;
+  try {
+    let models = await (await fetch(`${local}/v1/models`)).json();
+    assert.equal(models.data[0].claude_open.realId, 'claude-account-one');
+
+    const inference = await fetch(`${local}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-account-one',
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    assert.equal(inference.status, 200);
+    let usage = await (await fetch(`${local}/usage`)).json();
+    assert.equal(usage.totals.totalTokens, 9);
+    const firstConnection = usage.connectionFingerprint;
+
+    key = 'account-two';
+    models = await (await fetch(`${local}/v1/models`)).json();
+    assert.equal(models.data[0].claude_open.realId, 'claude-account-two');
+    usage = await (await fetch(`${local}/usage`)).json();
+    assert.equal(usage.totals.totalTokens, 0, 'session totals reset with the credential');
+    assert.notEqual(usage.connectionFingerprint, firstConnection);
+
+    key = 'invalid';
+    models = await (await fetch(`${local}/v1/models`)).json();
+    assert.deepEqual(models.data, [], 'credential failure cannot serve the previous account catalog');
+  } finally {
+    await adapter.close();
+  }
+});
+
 test('real server: port-conflict falls back to an ephemeral port (never assumes a fixed one)', async () => {
   // Occupy a port, then ask the adapter to prefer it; it must fall back.
   const gw = createMockGateway({ protocols: ['anthropic'], models: [{ id: 'claude-opus-4-7' }] });

@@ -29,9 +29,24 @@ function Stop-OwnedProcesses {
 }
 
 $shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Claude Open.lnk'
+$desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Claude Open.lnk'
 if ($PSCmdlet.ShouldProcess($target,'Uninstall Claude Open application')) {
   Stop-OwnedProcesses -Root $target
   Remove-Item -LiteralPath $shortcut -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $desktopShortcut -Force -ErrorAction SilentlyContinue
+  $taskbarDir = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+  if (Test-Path -LiteralPath $taskbarDir) {
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($pin in @(Get-ChildItem -LiteralPath $taskbarDir -Filter 'Claude Open*.lnk' -File -ErrorAction SilentlyContinue)) {
+      try {
+        $link = $shell.CreateShortcut($pin.FullName)
+        if (-not [string]::IsNullOrWhiteSpace($link.TargetPath) -and
+            [System.IO.Path]::GetFullPath($link.TargetPath) -eq (Join-Path $target 'ClaudeOpen.exe')) {
+          Remove-Item -LiteralPath $pin.FullName -Force
+        }
+      } catch {}
+    }
+  }
   Get-AppxPackage -Name ClaudeOpen -ErrorAction SilentlyContinue |
     Remove-AppxPackage -ErrorAction SilentlyContinue
   $thumbprint = [string]$marker.sparseIdentity.certificateThumbprint

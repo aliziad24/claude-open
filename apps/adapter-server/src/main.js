@@ -162,7 +162,10 @@ export async function start(opts = {}) {
       }
     };
     await refreshWidget();
-    setInterval(refreshWidget, 15000).unref();
+    // Keep account data close enough to live that a renderer-side Refresh can
+    // always observe a newly fetched gateway snapshot within its 12s deadline.
+    // Model discovery remains protected by the adapter catalog TTL.
+    setInterval(refreshWidget, 5000).unref();
   }
 
   const runtimeFile = join(rtDir, 'runtime.json');

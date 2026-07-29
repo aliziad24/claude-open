@@ -18,7 +18,8 @@ Do not claim Cowork is working from feature flags or UI visibility alone.
 1. Require the user to choose an SSH host they are authorized to access.
 2. Do not request or print its hostname, username, password, private key, or command history.
 3. Prefer the user's existing Windows OpenSSH agent/config. Never copy a private key into Claude Open files.
-4. Connect through Claude Open and run a harmless read-only command approved by the user, such as printing the remote operating-system name.
-5. Confirm disconnect/reconnect behavior and that normal Claude remains separate.
+4. Launch through the Claude Open icon so its managed remote-loopback bridge starts; never run the copied client executable directly.
+5. Connect through Claude Open and run a harmless read-only command approved by the user, such as printing the remote operating-system name.
+6. Confirm a Code message completes through the remote connection, then confirm disconnect/reconnect behavior and that normal Claude remains separate.
 
-SSH availability depends on the selected model, gateway tool support, local SSH configuration, and remote policy. Report each layer independently.
+SSH availability depends on the selected model, gateway tool support, local SSH configuration, the server's TCP-forwarding policy, and remote policy. The managed bridge binds only remote loopback and must never be replaced with a LAN/tailnet listener. Report each layer independently.

@@ -90,4 +90,12 @@ export class CatalogCache {
   hasData() {
     return this.state.models != null;
   }
+
+  /**
+   * Drop every value tied to a previous gateway credential/account.
+   * Credential failures must never fall back to another account's catalog.
+   */
+  clear() {
+    this.state = { models: null, etag: null, fetchedAt: null, stale: false, lastError: null };
+  }
 }

@@ -1,6 +1,6 @@
 # User guide
 
-Claude Open has its own Start-menu icon, profile, credential, and application identity. It can be used at the same time as normal Claude. Always launch it through **Claude Open**; launching the copied client executable directly bypasses isolation setup.
+Claude Open has one Start-menu/taskbar icon and a matching desktop shortcut, plus its own profile and credential. The shortcut always starts the launcher so gateway/isolation setup cannot be bypassed; the hidden Cowork runtime keeps its package identity but joins the launcher taskbar group at the window level. Normal Claude keeps its separate icon. Always launch through **Claude Open**; launching the copied client executable directly bypasses isolation setup.
 
 ## Before you start
 
@@ -21,13 +21,15 @@ Do not add `/v1/models` or `/v1/messages` to the base URL. Do not put the key in
 
 ## Models and effort
 
-The model selector is filled from the gateway's live `/v1/models` response. Refresh it from the Control Center after the gateway changes its catalog. Claude Open keeps stable local aliases, while the gateway's actual model IDs remain visible in model details.
+The model selector is filled from the gateway's live `/v1/models` response. The adapter rechecks the catalog after a short cache interval, so gateway additions and removals appear without editing source or configuration. Opening the selector also requests a fresh snapshot. Models are grouped Claude, GPT, Grok, Kimi, MiniMax, Qwen, then other families; each family is sorted predictably. Claude Open keeps stable local aliases, while the gateway's actual model IDs remain visible in model details.
 
 Reasoning effort is deliberately conservative. A selector is available only when the adapter knows the exact wire field and the current gateway has behaviorally verified it. **Verify & apply** performs real gateway requests and may incur normal usage charges.
 
+The usage pill refreshes from the local adapter every 5 seconds. It always shows observed session tokens. If your gateway exposes account plan/usage endpoints, configure the optional mapped usage block described in [Usage and context](USAGE-CONTEXT.md); Claude Open then reads those endpoints with the same saved base URL and Credential Manager key, without placing the key in renderer files.
+
 ## Usage widget
 
-The floating widget inside Claude Open shows requests and tokens observed by the current local adapter session, plus available-model and context information. It reads secret-free files generated locally by the adapter.
+The floating widget inside Claude Open shows requests and tokens observed by the current local adapter session, plus available-model and selected-model context information. It matches both the client-safe alias and the gateway display/real model name, so aliased non-Claude models retain their context metadata. It reads secret-free files generated locally by the adapter. Its **Refresh** button waits for a newer gateway snapshot instead of merely repainting cached data, confirms the refresh time, and visibly labels a stalled snapshot as stale or failed.
 
 This is not provider billing or subscription quota. It resets when the adapter restarts and does not count requests made outside Claude Open.
 
@@ -71,6 +73,8 @@ Host development-box
 Keep private keys only in your `.ssh` directory and protect them with normal Windows permissions/passphrases. Claude Open never copies SSH keys or host details into its repository or release.
 
 Launch Claude Open, open its environment/computer connection picker, choose the SSH connection, and select the configured host. If it is missing, close Claude Open, confirm `ssh development-box` works in PowerShell, and relaunch through the **Claude Open** icon—not by running `client\claude.exe` directly.
+
+For remote Code sessions, Claude Open automatically starts an OpenSSH reverse forward for a host you have already approved. The forward binds only the remote host's `127.0.0.1` adapter port back to the PC's loopback adapter; it does not expose the gateway adapter to the LAN or tailnet and it does not copy credentials or private keys. The bridge stops with Claude Open.
 
 Run only commands you understand on hosts you are authorized to access. Do not share hostnames, usernames, passwords, private keys, or SSH history in support reports or AI conversations.
 

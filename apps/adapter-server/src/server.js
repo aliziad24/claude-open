@@ -14,9 +14,10 @@
 // persisting it so the isolated Claude config can be pointed at it.
 
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 import {
   handleMessage,
   anthropicToChat,
@@ -33,9 +34,10 @@ import {
   probeEffort,
   UsageTelemetry,
   AnthropicUsageObserver,
+  mappedUsageAdapter,
 } from '@claude-open/gateway-adapter';
 import { ConformanceStore } from '@claude-open/gateway-adapter';
-import { AliasMap, normalizeCatalog, CatalogCache } from '@claude-open/model-catalog';
+import { AliasMap, normalizeCatalog, mergeModelDetails, CatalogCache } from '@claude-open/model-catalog';
 import { loadRegistry, resolveCapabilities, isChatUsable } from '@claude-open/model-registry';
 
 const REGISTRY = loadRegistry();
@@ -45,6 +47,13 @@ function redact(s) {
   return String(s || '')
     .replace(/(authorization|x-api-key|bearer)\s*[:=]?\s*\S+/gi, '$1 <redacted>')
     .replace(/sk-[A-Za-z0-9\-_]{6,}/g, '<redacted>');
+}
+
+function connectionFingerprint(gatewayFingerprint, credentialFingerprint) {
+  return createHash('sha256')
+    .update(`${gatewayFingerprint || ''}\0${credentialFingerprint || '<none>'}`)
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /**
@@ -58,10 +67,11 @@ function redact(s) {
  */
 export function createAdapterServer({ config, secretStore, log = () => {}, fetchImpl = fetch, gatewayFingerprint, aliasStorePath, probeStorePath, conformanceStore, clientToken = null }) {
   const base = config.baseUrl.replace(/\/+$/, '');
-  // Security-review defect 2(a): cap the request body so a local process cannot
-  // stream an unbounded body and OOM the adapter. Default 10MB; readBody rejects
-  // with a 413-carrying error the moment the cap is exceeded and stops buffering.
-  const maxBodyBytes = config.maxBodyBytes ?? 10 * 1024 * 1024;
+  // Cowork/Code histories can legitimately exceed 10 MB. Bound both the bytes
+  // received and the decoded body, while accepting the compression encodings
+  // used by newer clients. The decoded cap also prevents decompression bombs.
+  const maxBodyBytes = config.maxBodyBytes ?? 64 * 1024 * 1024;
+  const maxWireBodyBytes = config.maxWireBodyBytes ?? maxBodyBytes;
   const fp = gatewayFingerprint || hostFingerprint(base);
   const salt = config.aliasSalt || `claude-open::${fp}`;
 
@@ -89,13 +99,53 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     }
   }
 
-  const cache = new CatalogCache({ ttlMs: config.catalogTtlMs ?? 5 * 60 * 1000 });
+  // The gateway is the source of truth for the picker. A short TTL lets additions
+  // and removals appear automatically while retaining last-known-good behavior
+  // during a temporary discovery failure.
+  const cache = new CatalogCache({ ttlMs: config.catalogTtlMs ?? 30 * 1000 });
   const probeCache = new Map();
   const diagToken = randomBytes(24).toString('hex'); // guards /diagnostics
   const resolveCaps = (id) => resolveCapabilities(REGISTRY, id);
-  const telemetry = new UsageTelemetry();
+  let telemetry = new UsageTelemetry();
+  let activeCredentialFingerprint = secretStore.fingerprint();
+  let activeConnectionFingerprint = connectionFingerprint(fp, activeCredentialFingerprint);
 
-  function recordUsage(realId, usage, model, route, stream = false) {
+  function ensureConnectionScope() {
+    const credentialFingerprint = secretStore.fingerprint();
+    const nextConnectionFingerprint = connectionFingerprint(fp, credentialFingerprint);
+    if (nextConnectionFingerprint !== activeConnectionFingerprint) {
+      cache.clear();
+      probeCache.clear();
+      telemetry = new UsageTelemetry();
+      activeCredentialFingerprint = credentialFingerprint;
+      activeConnectionFingerprint = nextConnectionFingerprint;
+      log({
+        evt: 'connection-changed',
+        gateway: fp,
+        connection: activeConnectionFingerprint,
+        msg: 'active credential changed; account-scoped caches and session usage reset',
+      });
+    }
+    return activeConnectionFingerprint;
+  }
+  const usageConfig = config.usage || { adapter: 'none' };
+  const gatewayUsage = mappedUsageAdapter(
+    usageConfig.adapter === 'mapped' ? usageConfig : null,
+    async (endpoint) => {
+      const target = new URL(endpoint, `${base}/`);
+      const gatewayOrigin = new URL(base).origin;
+      if (target.origin !== gatewayOrigin) throw new Error('usage endpoint must use the configured gateway origin');
+      const response = await fetchImpl(target, {
+        headers: upstreamHeaders({ accept: 'application/json' }),
+        signal: timeoutSignal(config.usageTimeoutMs ?? 12000),
+      });
+      if (!response.ok) throw new Error(`usage endpoint returned ${response.status}`);
+      return response.json();
+    },
+  );
+
+  function recordUsage(realId, usage, model, route, stream = false, requestConnectionFingerprint = activeConnectionFingerprint) {
+    if (requestConnectionFingerprint !== activeConnectionFingerprint) return;
     if (!usage) return;
     telemetry.record({
       model: realId,
@@ -149,6 +199,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
 
   /** Build upstream headers from the configured auth + resolved secret. */
   function upstreamHeaders(extra = {}) {
+    ensureConnectionScope();
     const h = { 'content-type': 'application/json', ...(config.customHeaders || {}), ...extra };
     const secret = secretStore.resolve();
     const kind = config.auth?.kind;
@@ -182,7 +233,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
 
   function readBody(req) {
     return new Promise((resolve, reject) => {
-      let d = '';
+      const chunks = [];
       let bytes = 0;
       let over = false;
       req.on('data', (c) => {
@@ -193,7 +244,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         // pause the stream rather than destroy the socket so the caller can still
         // write a clean 413 response back to the client.
         bytes += Buffer.byteLength(c);
-        if (bytes > maxBodyBytes) {
+        if (bytes > maxWireBodyBytes) {
           over = true;
           req.pause();
           const err = new Error('request body exceeds maximum allowed size');
@@ -201,10 +252,33 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           reject(err);
           return;
         }
-        d += c;
+        chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
       });
       req.on('end', () => {
-        if (!over) resolve(d);
+        if (over) return;
+        try {
+          const wire = Buffer.concat(chunks);
+          const encoding = String(req.headers['content-encoding'] || 'identity').toLowerCase().trim();
+          let decoded;
+          if (!encoding || encoding === 'identity') decoded = wire;
+          else if (encoding === 'gzip' || encoding === 'x-gzip') decoded = gunzipSync(wire, { maxOutputLength: maxBodyBytes });
+          else if (encoding === 'deflate') decoded = inflateSync(wire, { maxOutputLength: maxBodyBytes });
+          else if (encoding === 'br') decoded = brotliDecompressSync(wire, { maxOutputLength: maxBodyBytes });
+          else {
+            const err = new Error(`unsupported content-encoding: ${encoding}`);
+            err.statusCode = 415;
+            throw err;
+          }
+          if (decoded.length > maxBodyBytes) {
+            const err = new Error('request body exceeds maximum allowed size after decompression');
+            err.statusCode = 413;
+            throw err;
+          }
+          resolve(decoded.toString('utf8'));
+        } catch (e) {
+          if (!e.statusCode) e.statusCode = /maxoutputlength|larger than/i.test(String(e.message)) ? 413 : 400;
+          reject(e);
+        }
       });
       req.on('error', (e) => {
         if (!over) reject(e);
@@ -258,8 +332,10 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
    * @param {boolean} [opts.preferCache=true] serve a warm cache without fetching
    */
   async function getCatalog({ preferCache = true } = {}) {
-    // Fast path: a populated cache answers the probe without touching upstream.
-    if (preferCache && cache.hasData()) return cache.serve();
+    const catalogConnectionFingerprint = ensureConnectionScope();
+    // Fast path only while fresh. The previous hasData() check made the first
+    // successful catalog permanent for the lifetime of the adapter.
+    if (preferCache && cache.isFresh()) return cache.serve();
     try {
       const headers = { ...upstreamHeaders(), ...cache.conditionalHeaders() };
       const resp = await fetchImpl(`${base}${config.modelsEndpoint || '/v1/models'}?limit=1000`, {
@@ -278,11 +354,30 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         return cache.serve();
       }
       const body = await resp.json();
-      const list = Array.isArray(body) ? body : body.data || [];
+      let list = Array.isArray(body) ? body : body.data || [];
+      const detailsEndpoint = config.modelDetailsEndpoint;
+      if (detailsEndpoint) {
+        try {
+          const target = new URL(detailsEndpoint, `${base}/`);
+          if (target.origin !== new URL(base).origin) throw new Error('model details endpoint must use the configured gateway origin');
+          const detailsResponse = await fetchImpl(target, {
+            method: 'GET',
+            headers: upstreamHeaders(),
+            signal: timeoutSignal(config.modelDetailsTimeoutMs ?? 1500),
+          });
+          if (detailsResponse.ok) list = mergeModelDetails(list, await detailsResponse.json());
+        } catch (error) {
+          log({ evt: 'warn', msg: `optional model details unavailable: ${redact(error.message)}` });
+        }
+      }
       const normalized = normalizeCatalog(list, aliasMap, {
         resolveCaps,
         modelOverrides: config.modelOverrides || {},
       });
+      // A credential can rotate while discovery is in flight. Discard that
+      // completed response instead of placing old-account models into the new
+      // connection's cache.
+      if (catalogConnectionFingerprint !== activeConnectionFingerprint) return cache.serve();
       cache.recordFresh(normalized, resp.headers.get?.('etag') || null);
       persistAliases(); // Defect 2.7: keep alias->realId stable across restarts
       return cache.serve();
@@ -297,6 +392,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     const method = req.method || 'GET';
     log({ evt: 'request', method, path: url.split('?', 1)[0] });
     try {
+      const requestConnectionFingerprint = ensureConnectionScope();
       // --- health (liveness only; NOT overall gateway health) ---
       if (method === 'GET' && (url === '/health' || url === '/')) {
         return sendJson(res, 200, {
@@ -305,6 +401,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           scope: 'liveness-only',
           note: 'this endpoint proves the adapter process is up; use /health/deep for gateway health',
           gateway: fp,
+          connection: requestConnectionFingerprint,
           secretSource: secretStore.source(),
           hasCatalog: cache.hasData(),
         });
@@ -453,11 +550,18 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         // Emit an Anthropic-picker-shaped list: alias as id, real name as display.
         const data = served.models
           .filter((m) => isChatUsable({ modelType: m.modelType, routes: m.routes }))
+          .sort(compareModelsByFamily)
           .map((m) => ({
             id: m.stableAlias,
             display_name: m.displayName,
             type: 'model',
             created_at: undefined,
+            // Preserve standard gateway limit fields in the renderer snapshot.
+            // The alias id and display name can differ, so the widget also gets
+            // the canonical real id inside claude_open below.
+            context_length: m.contextWindow,
+            max_input_tokens: m.maxInputTokens,
+            max_output_tokens: m.maxOutputTokens,
             // The patched client consumes this native-looking field. Advertise
             // only behaviorally verified categorical values; unknown/schema-only
             // controls remain hidden instead of becoming decorative UI.
@@ -519,7 +623,21 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
       if (method === 'GET' && url.startsWith('/usage')) {
         if (!requireClient(req, res)) return;
         const served = await getCatalog();
-        return sendJson(res, 200, telemetry.snapshot(served.models));
+        const snapshot = telemetry.snapshot(served.models);
+        snapshot.connectionFingerprint = requestConnectionFingerprint;
+        const [plan, accountUsage] = await Promise.all([
+          gatewayUsage.getPlan(),
+          gatewayUsage.getUsage(),
+        ]);
+        snapshot.gateway = {
+          plan,
+          usage: accountUsage,
+          fetchedAt: Date.now(),
+          source: plan.available || accountUsage.available ? 'configured-gateway' : 'not-configured',
+        };
+        if (plan.available) snapshot.quota = plan;
+        if (accountUsage.available) snapshot.billing = accountUsage;
+        return sendJson(res, 200, snapshot);
       }
 
       // --- count_tokens ---
@@ -602,7 +720,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         const wantStream = !!bodyObj.stream;
 
         if (wantStream) {
-          return streamMessage(res, { bodyObj, model, override, realId });
+          return streamMessage(res, { bodyObj, model, override, realId, requestConnectionFingerprint });
         }
         const result = await handleMessage({
           baseUrl: base,
@@ -623,7 +741,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
         });
         if (result.status >= 200 && result.status < 300) {
           const decision = resolveRoute({ realId, model, override, probeCache, gatewayFingerprint: fp });
-          recordUsage(realId, result.body?.usage, model, decision.route, false);
+          recordUsage(realId, result.body?.usage, model, decision.route, false, requestConnectionFingerprint);
         }
         log({ evt: 'messages', model: realId, status: result.status });
         return sendJson(res, result.status, result.body);
@@ -639,7 +757,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
   });
 
   /** Stream a /v1/messages response by translating the upstream SSE. */
-  async function streamMessage(res, { bodyObj, model, override, realId }) {
+  async function streamMessage(res, { bodyObj, model, override, realId, requestConnectionFingerprint }) {
     const decision = resolveRoute({ realId, model, override, probeCache, gatewayFingerprint: fp });
     if (!decision.route) {
       return sendJson(res, 400, { type: 'error', error: { type: 'invalid_request_error', message: decision.reason } });
@@ -662,7 +780,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
           res.write(Buffer.from(value));
         }
         observer.push(decoder.decode());
-        recordUsage(realId, observer.finish(), model, decision.route, true);
+        recordUsage(realId, observer.finish(), model, decision.route, true, requestConnectionFingerprint);
       }
       return res.end();
     }
@@ -684,7 +802,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
       return sendJson(res, upstream.status, { type: 'error', error: { type: 'api_error', message: redact(safeErr(text)) } });
     }
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-    const onUsage = (usage) => recordUsage(realId, usage, model, decision.route, true);
+    const onUsage = (usage) => recordUsage(realId, usage, model, decision.route, true, requestConnectionFingerprint);
     for await (const frame of translate(decodedChunks(upstream.body), realId, { onUsage })) res.write(frame);
     return res.end();
   }
@@ -780,6 +898,7 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
     diagToken,
     gatewayFingerprint: fp,
     maxBodyBytes,
+    maxWireBodyBytes,
     /** Listen on the configured/free port. Returns the chosen port. */
     async listen(preferredPort = 0, host = '127.0.0.1') {
       const port = await tryListen(server, preferredPort, host);
@@ -797,6 +916,34 @@ export function createAdapterServer({ config, secretStore, log = () => {}, fetch
 function findModel(cache, realId) {
   const served = cache.serve();
   return served.models.find((m) => m.realId === realId) || null;
+}
+
+function modelFamilyRank(model) {
+  const value = String(model?.realId || model?.displayName || '').toLowerCase();
+  if (/^claude(?:-|$)/.test(value)) return 0;
+  if (/^(?:gpt|o[1-9]|codex)(?:-|\.|$)/.test(value)) return 1;
+  if (/^grok(?:-|\.|$)/.test(value)) return 2;
+  if (/^(?:kimi|moonshot)(?:-|\.|$)/.test(value)) return 3;
+  if (/^minimax(?:-|\.|$)/.test(value)) return 4;
+  if (/^qwen(?:-|\.|$)/.test(value)) return 5;
+  return 6;
+}
+
+function compareModelsByFamily(a, b) {
+  const familyDelta = modelFamilyRank(a) - modelFamilyRank(b);
+  if (familyDelta) return familyDelta;
+  const claudePreference = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-6'];
+  if (modelFamilyRank(a) === 0) {
+    const ai = claudePreference.indexOf(a.realId);
+    const bi = claudePreference.indexOf(b.realId);
+    const preferredDelta = (ai < 0 ? claudePreference.length : ai) - (bi < 0 ? claudePreference.length : bi);
+    if (preferredDelta) return preferredDelta;
+  }
+  return String(a.realId || a.displayName || '').localeCompare(
+    String(b.realId || b.displayName || ''),
+    undefined,
+    { numeric: true, sensitivity: 'base' },
+  );
 }
 
 /**

@@ -68,3 +68,13 @@ test('failure reason is a plain string (no secret leakage vector)', () => {
   c.recordFailure(undefined);
   assert.equal(typeof c.serve().reason, 'string');
 });
+
+test('clear removes data and validators from a previous credential account', () => {
+  const c = new CatalogCache();
+  c.recordFresh([{ realId: 'account-a' }], 'etag-account-a');
+  c.clear();
+  assert.equal(c.hasData(), false);
+  assert.deepEqual(c.serve().models, []);
+  assert.deepEqual(c.conditionalHeaders(), {});
+  assert.equal(c.serve().stale, false);
+});

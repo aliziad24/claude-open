@@ -1,10 +1,11 @@
 // Security-review defect 2(a): readBody previously accumulated the entire
 // request body into memory with NO size cap, so a local process could stream an
 // unbounded body and OOM the adapter. The adapter now caps the body at
-// maxBodyBytes (default 10MB) and returns HTTP 413 the moment the cap is
+// maxBodyBytes (default 64MB) and returns HTTP 413 the moment the cap is
 // exceeded, destroying the socket so no further bytes are buffered.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
 import { createMockGateway } from '../../../tests/fixtures/mock-gateway.mjs';
 import { createAdapterServer } from '../src/server.js';
 
@@ -56,8 +57,38 @@ test('a body within the cap is still accepted normally', async () => {
   });
 });
 
-test('the default cap is 10MB when maxBodyBytes is not configured', async () => {
+test('the default decoded cap is 64MB when maxBodyBytes is not configured', async () => {
   await withStack({}, async (local, adapter) => {
-    assert.equal(adapter.maxBodyBytes, 10 * 1024 * 1024);
+    assert.equal(adapter.maxBodyBytes, 64 * 1024 * 1024);
+    assert.equal(adapter.maxWireBodyBytes, 64 * 1024 * 1024);
+  });
+});
+
+test('gzip request bodies are decoded before JSON parsing', async () => {
+  await withStack({ maxBodyBytes: 32 * 1024 * 1024 }, async (local) => {
+    const body = JSON.stringify({
+      model: 'claude-opus-4-7',
+      max_tokens: 8,
+      messages: [{ role: 'user', content: 'x'.repeat(12 * 1024 * 1024) }],
+    });
+    const r = await fetch(`${local}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
+      body: gzipSync(body),
+    });
+    assert.notEqual(r.status, 400, 'compressed JSON must parse');
+    assert.notEqual(r.status, 413, 'a decoded 12MB Cowork request is below the configured cap');
+  });
+});
+
+test('a compressed body expanding past the decoded cap is rejected with 413', async () => {
+  await withStack({ maxBodyBytes: 1024 * 1024 }, async (local) => {
+    const body = JSON.stringify({ model: 'claude-opus-4-7', messages: [{ role: 'user', content: 'x'.repeat(2 * 1024 * 1024) }] });
+    const r = await fetch(`${local}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
+      body: gzipSync(body),
+    });
+    assert.equal(r.status, 413);
   });
 });

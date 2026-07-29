@@ -11,7 +11,7 @@
 
 ## No models or effort selector
 
-Refresh after launching the adapter. Non-chat or unknown-route models are intentionally filtered. An effort selector stays hidden until the exact control is behaviorally verified for this gateway.
+Open the selector again or wait about 30 seconds for catalog refresh. Non-chat or unknown-route models are intentionally filtered. An effort selector stays hidden until the exact control is behaviorally verified for this gateway.
 
 ## Claude Open does not launch
 
@@ -19,7 +19,7 @@ Always use the **Claude Open** icon or `ClaudeOpen.exe`; do not start `client\cl
 
 ## Cowork or SSH fails
 
-For Cowork, check Virtual Machine Platform, virtualization, reboot state, and `CoworkVMService`. For SSH, make the same host work with `ssh host-alias` in PowerShell first, then relaunch Claude Open so it reloads `%USERPROFILE%\.ssh\config`.
+For Cowork, check Virtual Machine Platform, virtualization, reboot state, available disk space, and `CoworkVMService`. For SSH, make the same host work with `ssh host-alias` in PowerShell first, then relaunch Claude Open so it reloads `%USERPROFILE%\.ssh\config` and starts the remote-loopback bridge. If remote Code reports `ConnectionRefused` for the adapter, confirm the server permits SSH TCP forwarding and that no second direct launch of `client\claude.exe` is running.
 
 ## Mobile companion fails or reconnects
 
